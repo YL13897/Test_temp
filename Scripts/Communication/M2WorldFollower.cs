@@ -25,6 +25,11 @@ public class M2WorldFollower : MonoBehaviour
     [Range(0f, 1f)] public float smooth = 0.25f;      // same feel as old 2D version
     [Tooltip("How quickly sync bias follows disturbance-induced offset in HRI mode.")]
     public float biasFollowRate = 10f;
+    [Tooltip("How quickly sync bias returns to zero after disturbance in M2+HRI+POS mode.")]
+    public float biasRecoverRate = 4f;
+    [Tooltip("Clamp range for rover X in M2+HRI+POS mode.")]
+    public float hriPosXMin = -9f;
+    public float hriPosXMax = 9f;
 
     [Tooltip("Only sync lateral X. Keep forward Z velocity fully controlled by rover logic.")]
     public bool affectOnlyX = true;
@@ -56,15 +61,32 @@ public class M2WorldFollower : MonoBehaviour
         float m2X = (float)m2.State["X"][0];
 
         float nominalX = MapM2XToUnityX(m2X);
-        bool isHriDisturb = IsHriDisturbanceActive();
-        if (isHriDisturb)
+
+        if (IsM2HriPosMode())
         {
-            float desiredBias = marker.position.x - nominalX;
-            float biasAlpha = Mathf.Clamp01(biasFollowRate * Time.fixedDeltaTime);
-            syncXBias = Mathf.Lerp(syncXBias, desiredBias, biasAlpha);
+            if (IsHriPosDisturbanceActive())
+            {
+                float desiredBias = marker.position.x - nominalX;
+                float biasAlpha = Mathf.Clamp01(biasFollowRate * Time.fixedDeltaTime);
+                syncXBias = Mathf.Lerp(syncXBias, desiredBias, biasAlpha);
+            }
+            else
+            {
+                float recoverAlpha = Mathf.Clamp01(biasRecoverRate * Time.fixedDeltaTime);
+                syncXBias = Mathf.Lerp(syncXBias, 0f, recoverAlpha);
+            }
+        }
+        else
+        {
+            syncXBias = 0f;
         }
 
         float targetX = nominalX + syncXBias;
+        if (IsM2HriPosMode())
+        {
+            targetX = Mathf.Clamp(targetX, hriPosXMin, hriPosXMax);
+            syncXBias = targetX - nominalX;
+        }
         Vector3 target = BuildTargetPosition(targetX);
         
         ApplySmoothPosition(target);
@@ -90,11 +112,18 @@ public class M2WorldFollower : MonoBehaviour
         return unityCenterX + (m2Input - m2CenterX) * slope;
     }
 
-    private bool IsHriDisturbanceActive()
+    private bool IsM2HriPosMode()
     {
         if (bridge == null) return false;
         if (bridge.unityMode != M2RoverBridge.UnityDriveMode.Mode2_M2) return false;
         if (bridge.hriModeCode != 1) return false;
+        if (bridge.ctrlModeCode != 1) return false;
+        return true;
+    }
+
+    private bool IsHriPosDisturbanceActive()
+    {
+        if (!IsM2HriPosMode()) return false;
         return ForceField.DisturbanceU > 0.5f;
     }
 
