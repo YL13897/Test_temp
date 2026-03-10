@@ -85,6 +85,21 @@ public class ForceField : MonoBehaviour
 
         // sample ONCE per section reuse
         IsActiveThisRun = UnityEngine.Random.value < Probability;
+
+
+
+
+
+
+        IsActiveThisRun = true; // For testing to keep the field always active
+
+
+
+
+
+
+
+
         if (!IsActiveThisRun) return;
         targetRb = other.attachedRigidbody; // Cache the player's Rigidbody for applying forces in FixedUpdate.
 

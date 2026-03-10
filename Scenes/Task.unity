@@ -2122,6 +2122,7 @@ MonoBehaviour:
   isDriving: 0
   isPaused: 0
   preserveLateralVelocity: 0
+  lateralDamping: 4.5
 --- !u!65 &481331126
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -2384,6 +2385,9 @@ MonoBehaviour:
   unityCenterX: 0
   smooth: 0.25
   biasFollowRate: 10
+  biasRecoverRate: 4.5
+  hriPosXMin: -9
+  hriPosXMax: 9
   affectOnlyX: 1
 --- !u!1 &512920198
 GameObject:
