@@ -36,12 +36,12 @@ namespace CORC.Demo
         public int ctrlModeCode = 1;
 
         [Header("POS mode (handle offset -> steer)")]
-        float handleXDeadZone = 0.003f;
+        float handleXDeadZone = 0.005f;
         public float handleXToSteer = 5.0f; // steering command per meter of handle offset in POS mode
 
         [Header("M2 VEL mode (open-loop damped steer)")]
         public float velHandleXDeadZone = 0.01f;
-        public float velOpenLoopKp = 0.9f; // steer response to handle offset
+        public float velOpenLoopKp = 25.0f; // steer response to handle offset
         public float velOpenLoopKd = 0.25f; // damping term from current lateral velocity
         public float velSteerClamp = 0.45f; // VEL-only steering clamp to avoid saturation oscillation
         public bool velDebugWarning = true;
@@ -49,7 +49,7 @@ namespace CORC.Demo
 
         [Header("M2 VEL runtime override")]
         public bool forceVelRuntimeParams = true; // prevent scene/inspector stale values in M2+VEL
-        public float forcedVelOpenLoopKp = 0.9f;
+        public float forcedVelOpenLoopKp = 25.0f;
         public float forcedVelOpenLoopKd = 0.25f;
         public float forcedVelSteerClamp = 0.45f;
 
@@ -81,7 +81,6 @@ namespace CORC.Demo
         private bool lastM2Connected = false; // Track M2 connection status to detect reconnects for auto-snapping
         private bool hasSentDisturbanceState = false; // To track whether we've sent the disturbance state to M2, to avoid redundant commands
         private bool lastDisturbanceState = false; // To track the last disturbance state sent to M2, for change detection
-        private float lastDisturbanceDurationSec = 0f; // Last timeout value sent with DSTR=1.
         private Vector3 roverInitialPosition; // To store the initial pose of the rover for resetting, captured in Awake()
         
         // Flag indicating whether the reference point has been initialized.
@@ -193,10 +192,9 @@ namespace CORC.Demo
             worldFollower?.ResetBias();
             // SendFeedbackForce(0f, 0f);
             if (m2 != null && m2.IsInitialised() && m2.Client != null && m2.Client.IsConnected())
-                m2.SendCmd("DSTR", new double[] { 0.0 });
+                m2.SendCmd("DSTR", new double[] { 0.0 }); // Ensure disturbance is turned off at trial end
             hasSentDisturbanceState = false;
             lastDisturbanceState = false;
-            lastDisturbanceDurationSec = 0f;
             if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(true);
         }
 
@@ -224,7 +222,6 @@ namespace CORC.Demo
             syncRefReady = false;
             hasSentDisturbanceState = false;
             lastDisturbanceState = false;
-            lastDisturbanceDurationSec = 0f;
             isPaused = false;
             isDriving = false;
 
@@ -369,14 +366,12 @@ namespace CORC.Demo
             // Use the same Unity disturbance source u(t) for both local simulation and M2 signaling.
             bool state = ForceField.DisturbanceU > 0.5f;
             float durationSec = Mathf.Max(0f, ForceField.DisturbanceDurationSec);
-            bool durationChanged = state && lastDisturbanceState && Mathf.Abs(durationSec - lastDisturbanceDurationSec) > 0.05f;
 
-            if (!hasSentDisturbanceState || state != lastDisturbanceState || durationChanged)
+            if (!hasSentDisturbanceState || state != lastDisturbanceState)
             {
-                if (state) m2.SendCmd("DSTR", new double[] { 1.0, durationSec });
+                if (state) m2.SendCmd("DSTR", new double[] { 1.0});
                 else m2.SendCmd("DSTR", new double[] { 0.0 });
                 lastDisturbanceState = state;
-                lastDisturbanceDurationSec = state ? durationSec : 0f;
                 hasSentDisturbanceState = true;
             }
         }
@@ -496,12 +491,10 @@ namespace CORC.Demo
             {
                 SyncRoverToCurrentM2MappedX();
                 hasSentDisturbanceState = false;
-                lastDisturbanceDurationSec = 0f;
             }
             if (!connectedNow)
             {
                 hasSentDisturbanceState = false;
-                lastDisturbanceDurationSec = 0f;
             }
             lastM2Connected = connectedNow;
 
@@ -586,7 +579,7 @@ namespace CORC.Demo
 
                 if (ctrl == 2)// VEL mode
                 {
-                    ApplyForcedVelParamsIfEnabled();
+                    ApplyForcedVelParamsIfEnabled(); 
                     float handleXRel = ComputeVelHandleXRel(handleX);
                     if (hri == 2) VelPhriMode(handleXRel); // pHRI + VEL mode
                     else VelHriMode(handleXRel); // HRI-only + VEL mode

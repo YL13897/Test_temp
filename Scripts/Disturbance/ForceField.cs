@@ -21,10 +21,10 @@ public class ForceField : MonoBehaviour
     public float forceMagnitude = 2e3f;
     public Vector3 fixedDirection = Vector3.left; // direction of the force field effect
 
-    // sampled once per enable / per section reuse
+    // IsActiveThisRun: Indicates whether this force field instance is active for the current player traversal, determined by sampling the trigger probability on entry.
     // get; -> Anyone can read the value
     // private set; Only this class can change the value
-    public bool IsActiveThisRun { get; private set; } 
+    public bool IsActiveThisRun { get; private set; }  
     private bool playerInsideThisActiveField = false;
     private float disturbanceElapsedSec = 0f;
 

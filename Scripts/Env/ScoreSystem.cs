@@ -131,17 +131,22 @@ public class ScoreSystem : MonoBehaviour
         if (!enableBoundaryClamp) return false;
 
         Vector3 pos = targetRb.position;
+        Vector3 vel = targetRb.linearVelocity;
 
         if (pos.x < minX)
         {
             pos.x = minX;
+            vel.x = 0f;
             targetRb.position = pos;
+            targetRb.linearVelocity = vel;
             return true;
         }
         if (pos.x > maxX)
         {
             pos.x = maxX;
+            vel.x = 0f;
             targetRb.position = pos;
+            targetRb.linearVelocity = vel;
             return true;
         }
         return false;
