@@ -22,8 +22,8 @@ public class M2WorldFollower : MonoBehaviour
     public float unityCenterX = 0f;
 
     [Header("Motion")]
-    [Range(0f, 1f)] public float smooth = 0.25f;      // same feel as old 2D version
-    [Tooltip("How quickly sync bias follows disturbance-induced offset in HRI mode.")]
+    [Range(0f, 1f)] public float smooth = 0.25f; // smoothness factor for position updates
+    [Tooltip("How quickly sync bias follows disturbance-induced offset in M2+HRI+POS mode.")]
     public float biasFollowRate = 10f;
     [Tooltip("How quickly sync bias returns to zero after disturbance in M2+HRI+POS mode.")]
     public float biasRecoverRate = 4f;
@@ -31,17 +31,8 @@ public class M2WorldFollower : MonoBehaviour
     public float hriPosXMin = -9f;
     public float hriPosXMax = 9f;
 
-    [Tooltip("Only sync lateral X. Keep forward Z velocity fully controlled by rover logic.")]
-    public bool affectOnlyX = true;
-
     private Vector3 lastPos;
-    private float syncXBias = 0f;
-
-    void Reset()
-    {
-        marker = transform;
-        markerRb = GetComponent<Rigidbody>();
-    }
+    private float syncXBias = 0f; // additional bias to apply to Unity X to follow M2 position when HRI disturbance is active
 
     void Awake()
     {
@@ -52,16 +43,22 @@ public class M2WorldFollower : MonoBehaviour
 
     void FixedUpdate()
     {
-        if (m2 == null || marker == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected())
-        {
-            return;
-        }
+        if (m2 == null || marker == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return;
+
         if (m2.State == null || m2.State["X"] == null || m2.State["X"].Length < 1) return;
 
         float m2X = (float)m2.State["X"][0];
 
+        // VEL mode uses velocity mapping and should not position-sync rover.
+        if (IsM2VelMode())
+        {
+            syncXBias = 0f;
+            return;
+        }
+
         float nominalX = MapM2XToUnityX(m2X);
 
+        // POS+HRI mode with disturbance: apply additional bias to sync Unity X with M2's position changes due to HRI disturbance. Otherwise, smoothly recover bias to zero.
         if (IsM2HriPosMode())
         {
             if (IsHriPosDisturbanceActive())
@@ -76,12 +73,16 @@ public class M2WorldFollower : MonoBehaviour
                 syncXBias = Mathf.Lerp(syncXBias, 0f, recoverAlpha);
             }
         }
+
+        // If not in POS+HRI mode, or if there is no disturbance, just reset bias to zero.
         else
         {
             syncXBias = 0f;
         }
 
         float targetX = nominalX + syncXBias;
+
+        // In POS+HRI mode, also clamp the target X to prevent rover from going out of bounds due to large HRI disturbances.
         if (IsM2HriPosMode())
         {
             targetX = Mathf.Clamp(targetX, hriPosXMin, hriPosXMax);
@@ -119,6 +120,13 @@ public class M2WorldFollower : MonoBehaviour
         if (bridge.hriModeCode != 1) return false;
         if (bridge.ctrlModeCode != 1) return false;
         return true;
+    }
+
+    private bool IsM2VelMode()
+    {
+        if (bridge == null) return false;
+        if (bridge.unityMode != M2RoverBridge.UnityDriveMode.Mode2_M2) return false;
+        return bridge.ctrlModeCode == 2;
     }
 
     private bool IsHriPosDisturbanceActive()

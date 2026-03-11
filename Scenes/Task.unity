@@ -2279,7 +2279,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 507810783}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 445f36cb74831b2448551c46381f21d1, type: 3}
   m_Name: 
@@ -2385,7 +2385,7 @@ MonoBehaviour:
   unityCenterX: 0
   smooth: 0.25
   biasFollowRate: 10
-  biasRecoverRate: 4.5
+  biasRecoverRate: 4
   hriPosXMin: -9
   hriPosXMax: 9
   affectOnlyX: 1
