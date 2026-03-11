@@ -400,12 +400,13 @@ namespace CORC.Demo
             return handleXRel;
         }
 
-        // VEL mode (open-loop damped): map handle offset to steer and subtract velocity damping.
+        // VEL mode (open-loop damped): map handle offset to steer and apply direction-aware damping.
         private float ComputeVelSteerOpenLoopDamped(float handleXRel, out float currentVx)
         {
             currentVx = roverRigidbody != null ? roverRigidbody.linearVelocity.x : 0f;
 
-            float steer = velOpenLoopKp * handleXRel - velOpenLoopKd * currentVx;
+            float steerDir = Mathf.Sign(handleXRel);
+            float steer = velOpenLoopKp * handleXRel - velOpenLoopKd * currentVx * steerDir;
             if (Mathf.Abs(steer) < 1e-4f) return 0f;
             return Mathf.Clamp(steer, -velSteerClamp, velSteerClamp);
         }
