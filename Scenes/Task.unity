@@ -2239,14 +2239,14 @@ MonoBehaviour:
   handleXToSteer: 5
   velHandleXDeadZone: 0.005
   velOpenLoopKp: 25
-  velOpenLoopKd: 0.25
-  velSteerClamp: 0.45
+  velOpenLoopKd: 2.5
+  velSteerClamp: 0.3
   velDebugWarning: 1
   velDebugHz: 10
   forceVelRuntimeParams: 1
   forcedVelOpenLoopKp: 25
-  forcedVelOpenLoopKd: 0.25
-  forcedVelSteerClamp: 0.45
+  forcedVelOpenLoopKd: 2.5
+  forcedVelSteerClamp: 0.3
   steerClamp: 1
   enableHotkeys: 1
   targetWorldXScale: 5
@@ -2409,6 +2409,7 @@ MonoBehaviour:
   penaltyValue: 500
   minX: -9
   maxX: 9
+  enableBoundaryClamp: 1
   penaltyCooldown: 1
 --- !u!1 &512920198
 GameObject:

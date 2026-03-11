@@ -42,16 +42,16 @@ namespace CORC.Demo
         [Header("M2 VEL mode (open-loop damped steer)")]
         public float velHandleXDeadZone = 0.01f;
         public float velOpenLoopKp = 25.0f; // steer response to handle offset
-        public float velOpenLoopKd = 0.25f; // damping term from current lateral velocity
-        public float velSteerClamp = 0.45f; // VEL-only steering clamp to avoid saturation oscillation
+        public float velOpenLoopKd = 2.5f; // damping term from current lateral velocity
+        public float velSteerClamp = 0.30f; // VEL-only steering clamp to avoid saturation oscillation
         public bool velDebugWarning = true;
         public float velDebugHz = 10.0f;
 
         [Header("M2 VEL runtime override")]
         public bool forceVelRuntimeParams = true; // prevent scene/inspector stale values in M2+VEL
         public float forcedVelOpenLoopKp = 25.0f;
-        public float forcedVelOpenLoopKd = 0.25f;
-        public float forcedVelSteerClamp = 0.45f;
+        public float forcedVelOpenLoopKd = 2.5f;
+        public float forcedVelSteerClamp = 0.30f;
 
         [Header("Shared steering limits")]
         public float steerClamp = 1.0f;
