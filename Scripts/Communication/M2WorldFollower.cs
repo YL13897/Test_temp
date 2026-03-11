@@ -27,9 +27,6 @@ public class M2WorldFollower : MonoBehaviour
     public float biasFollowRate = 10f;
     [Tooltip("How quickly sync bias returns to zero after disturbance in M2+HRI+POS mode.")]
     public float biasRecoverRate = 4f;
-    [Tooltip("Clamp range for rover X in M2+HRI+POS mode.")]
-    public float hriPosXMin = -9f;
-    public float hriPosXMax = 9f;
 
     private Vector3 lastPos;
     private float syncXBias = 0f; // additional bias to apply to Unity X to follow M2 position when HRI disturbance is active
@@ -81,13 +78,6 @@ public class M2WorldFollower : MonoBehaviour
         }
 
         float targetX = nominalX + syncXBias;
-
-        // In POS+HRI mode, also clamp the target X to prevent rover from going out of bounds due to large HRI disturbances.
-        if (IsM2HriPosMode())
-        {
-            targetX = Mathf.Clamp(targetX, hriPosXMin, hriPosXMax);
-            syncXBias = targetX - nominalX;
-        }
         Vector3 target = BuildTargetPosition(targetX);
         
         ApplySmoothPosition(target);
