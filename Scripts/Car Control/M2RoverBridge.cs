@@ -41,7 +41,7 @@ namespace CORC.Demo
 
         [Header("M2 VEL mode (open-loop damped steer)")]
         public float velHandleXDeadZone = 0.01f;
-        public float velOpenLoopKp = 25.0f; // steer response to handle offset
+        public float velOpenLoopKp = 1.0f; // steer response to handle offset
         public float velOpenLoopKd = 2.5f; // damping term from current lateral velocity
         public float velSteerClamp = 0.30f; // VEL-only steering clamp to avoid saturation oscillation
         public bool velDebugWarning = true;
@@ -49,7 +49,7 @@ namespace CORC.Demo
 
         [Header("M2 VEL runtime override")]
         public bool forceVelRuntimeParams = true; // prevent scene/inspector stale values in M2+VEL
-        public float forcedVelOpenLoopKp = 25.0f;
+        public float forcedVelOpenLoopKp = 1.0f;
         public float forcedVelOpenLoopKd = 2.5f;
         public float forcedVelSteerClamp = 0.30f;
 
@@ -406,7 +406,7 @@ namespace CORC.Demo
             currentVx = roverRigidbody != null ? roverRigidbody.linearVelocity.x : 0f;
 
             float steerDir = Mathf.Sign(handleXRel);
-            float steer = velOpenLoopKp * handleXRel - velOpenLoopKd * currentVx * steerDir;
+            float steer = velOpenLoopKp * handleXRel;
             if (Mathf.Abs(steer) < 1e-4f) return 0f;
             return Mathf.Clamp(steer, -velSteerClamp, velSteerClamp);
         }

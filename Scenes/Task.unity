@@ -2238,13 +2238,13 @@ MonoBehaviour:
   ctrlModeCode: 1
   handleXToSteer: 5
   velHandleXDeadZone: 0.005
-  velOpenLoopKp: 25
+  velOpenLoopKp: 1
   velOpenLoopKd: 2.5
   velSteerClamp: 0.3
   velDebugWarning: 1
   velDebugHz: 10
   forceVelRuntimeParams: 1
-  forcedVelOpenLoopKp: 25
+  forcedVelOpenLoopKp: 1
   forcedVelOpenLoopKd: 2.5
   forcedVelSteerClamp: 0.3
   steerClamp: 1

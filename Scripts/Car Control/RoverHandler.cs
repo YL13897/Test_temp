@@ -36,6 +36,7 @@ public class RoverHandler : MonoBehaviour
     public void Accelerate()
     {
         if (preserveLateralVelocity)
+        // if (true)
         {
             Vector3 v = rb.linearVelocity;
             v.z = targetForwardSpeed;
