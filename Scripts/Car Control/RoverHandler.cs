@@ -14,7 +14,7 @@ public class RoverHandler : MonoBehaviour
     [SerializeField]
     bool isPaused = false;
     [SerializeField]
-    bool preserveLateralVelocity = true;
+    bool preserveLateralVelocity = true; 
     [SerializeField]
     float lateralDamping = 4.5f;
 
