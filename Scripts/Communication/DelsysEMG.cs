@@ -46,7 +46,7 @@ public class DelsysEMG
 
 
     //Threads for acquiring emg and acc data
-    private float samplingInterval = 0.0009f;
+    private float samplingInterval = 0.0009f; 
     private Thread emgThread;
 
 
@@ -66,6 +66,7 @@ public class DelsysEMG
     private long recordingSampleCount = 0;
     private int recordingFlushCounter = 0;
     private const int RecordingFlushInterval = 128;
+    private double recordingBridgeStartTime = double.NaN;
 
     //Reset local state, clear data lists, and reset status flags
     private void ResetLocalState()
@@ -88,6 +89,7 @@ public class DelsysEMG
             recording = false;
             recordingSampleCount = 0;
             recordingFlushCounter = 0;
+            recordingBridgeStartTime = double.NaN;
 
             if (recordingWriter == null) return;
 
@@ -115,7 +117,10 @@ public class DelsysEMG
             if (!recording || recordingWriter == null) return;
 
             StringBuilder line = new StringBuilder(128);
-            line.Append(recordingSampleCount * samplingInterval);
+            double t = double.IsNaN(recordingBridgeStartTime)
+                ? recordingSampleCount * samplingInterval
+                : recordingBridgeStartTime + recordingSampleCount * samplingInterval;
+            line.Append(t);
 
             for (int i = 0; i < 16; i++)
             {
@@ -187,8 +192,8 @@ public class DelsysEMG
         {
             string query = "SENSOR " + i + " " + COMMAND_SENSOR_TYPE;
             string response = SendCommand(query);
-            Debug.Log("Delsys-> " + query);
-            Debug.Log("<- Server Delsys " + response);
+            // Debug.Log("Delsys-> " + query);
+            // Debug.Log("<- Server Delsys " + response);
             _sensors.Add(response.Contains("INVALID") ? SensorTypes.NoSensor : sensorList[response]);
         }
 
@@ -207,7 +212,6 @@ public class DelsysEMG
     }
 
 
-
     //Close connection
     public void Close()
     {
@@ -216,7 +220,6 @@ public class DelsysEMG
             ResetLocalState();
             return;
         }
-        //Check if running and display error message if not
         if (running)
         {
             Debug.Log("Delsys-> Can't quit while acquiring data!");
@@ -314,22 +317,25 @@ public class DelsysEMG
 
     //Start log to csv
 
-    public void StartRecording(String filename)
+    public void StartRecording(String filename, double bridgeStartTime = double.NaN)
     {
         string dir = Path.GetDirectoryName(filename);
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
-        StreamWriter writer = new StreamWriter(filename, false, Encoding.ASCII);
-        writer.WriteLine(BuildRecordingHeader());
+        bool append = File.Exists(filename) && new FileInfo(filename).Length > 0;
+        StreamWriter writer = new StreamWriter(filename, append, Encoding.ASCII);
+        if (!append)
+            writer.WriteLine(BuildRecordingHeader());
         writer.Flush();
 
-        lock (recordingLock)
+        lock (recordingLock) // ensure we don't have a race condition where we start a new recording while the old one is still being finalized
         {
             CloseRecordingWriter();
             recordingWriter = writer;
             recordingSampleCount = 0;
             recordingFlushCounter = 0;
+            recordingBridgeStartTime = bridgeStartTime;
             recording = true;
         }
 
@@ -343,7 +349,7 @@ public class DelsysEMG
             return;
 
         long sampleCount;
-        lock (recordingLock)
+        lock (recordingLock) // ensure we get the final sample count before stopping recording
         {
             sampleCount = recordingSampleCount;
         }

@@ -108,8 +108,8 @@ namespace CORC.Demo
         // Delsys EMG background data collection
         [SerializeField] private bool delsysEnable;
         private DelsysEMG delsysEMG = new DelsysEMG();
-        [SerializeField] private bool emgIsRecording = false;
         [SerializeField] private int emgTrialIndex = 0;
+        [SerializeField] private bool emgIsRecording = false;
 
         [Header("EMG Channel Preview")]
         [SerializeField] private int emgPreviewMaxChannels = 8;
@@ -121,14 +121,60 @@ namespace CORC.Demo
         private double emgScoreTimestamp = 0.0;
         private bool emgShutdown = false;
         private double nextEmgUpdateTime = 0.0; // To control the update rate of EMG preview in the UI, we track the next allowed update time based on the specified preview Hz rate.
+        private string emgSessionFilePath;
 
         #region Private methods
         private string ConfigEMGFilePath()
         {
+            if (!string.IsNullOrEmpty(emgSessionFilePath))
+                return emgSessionFilePath;
+
             string emgDir = @"D:\yixianglin\Desktop\EMGData";
             Directory.CreateDirectory(emgDir);
-            string fileName = $"M2Rover_EMG_{DateTime.Now:yyyyMMdd_HHmmss}_{emgTrialIndex:D4}.csv";
-            return Path.Combine(emgDir, fileName);
+            string fileName = $"M2Rover_EMG_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+            emgSessionFilePath = Path.Combine(emgDir, fileName);
+            return emgSessionFilePath;
+        }
+
+        public bool IsEmgReady()
+        {
+            return delsysEnable && delsysEMG.IsConnected() && delsysEMG.IsRunning();
+        }
+
+        public bool EmgIsRecording => emgIsRecording;
+
+        private bool TryStartRecording(string indicateTxT)
+        {
+            if (!IsEmgReady() || emgIsRecording) return false;
+
+            string emgPath = ConfigEMGFilePath();
+            delsysEMG.StartRecording(emgPath, Time.timeAsDouble);
+            emgIsRecording = true;
+            emgTrialIndex++;
+            Debug.Log($"[M2RoverBridge] EMG recording started ({indicateTxT}).");
+            return true;
+        }
+
+        private bool TryStopRecording(string indicateTxT)
+        {
+            if (!emgIsRecording) return false;
+
+            if (delsysEMG.IsConnected())
+                delsysEMG.StopRecording();
+
+            emgIsRecording = false;
+            Debug.Log($"[M2RoverBridge] EMG recording stopped ({indicateTxT}).");
+            return true;
+        }
+
+        public bool StartEmgRecordingManual()
+        {
+            return TryStartRecording("manual");
+        }
+
+        public bool StopEmgRecordingManual()
+        {
+            return TryStopRecording("manual");
         }
 
         private void ShutdownEMG()
@@ -138,18 +184,9 @@ namespace CORC.Demo
 
             if (!delsysEnable) return;
 
-            if (emgIsRecording)
-            {
-                if (delsysEMG.IsConnected())
-                    delsysEMG.StopRecording();
-                emgIsRecording = false;
-            }
-
-            if (delsysEMG.IsRunning())
-                delsysEMG.StopAcquisition();
-
-            if (delsysEMG.IsConnected())
-                delsysEMG.Close();
+            try { TryStopRecording("shutdown"); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG stop recording during shutdown failed: {ex.Message}"); }
+            try { if (delsysEMG.IsRunning()) delsysEMG.StopAcquisition(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG stop acquisition during shutdown failed: {ex.Message}"); }
+            try { if (delsysEMG.IsConnected()) delsysEMG.Close(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG close during shutdown failed: {ex.Message}"); }
         }
 
         private void UpdateEmgScorePreview()
@@ -321,13 +358,7 @@ namespace CORC.Demo
                 if (!isPaused) isDriving = true;
                 worldFollower?.ResetBias();
 
-                if (delsysEnable && !emgIsRecording && delsysEMG.IsConnected() && delsysEMG.IsRunning())
-                {
-                    string emgPath = ConfigEMGFilePath();
-                    delsysEMG.StartRecording(emgPath);
-                    emgIsRecording = true;
-                    emgTrialIndex++;
-                }
+                TryStartRecording("trial begin");
 
                 if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(false);
             }
@@ -336,12 +367,7 @@ namespace CORC.Demo
         // This should be called when the trial ends
         public void NotifyTrialEnd()
         {
-            if (delsysEnable && emgIsRecording)
-            {
-                if (delsysEMG.IsConnected())
-                    delsysEMG.StopRecording();
-                emgIsRecording = false;
-            }
+            TryStopRecording("trial end");
 
             trialActive = false;
             syncRefReady = false;
