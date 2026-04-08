@@ -17,6 +17,7 @@ public class ScoreManager : MonoBehaviour
     public float EmgScore { get; private set; }
     public double EmgTimestamp { get; private set; }
     public string EmgDetails { get; private set; }
+    public bool HasStartedScoring { get; private set; }
     public bool IsScorePaused { get; private set; }
     private double nextPenaltytime = 0.0;
 
@@ -41,10 +42,18 @@ public class ScoreManager : MonoBehaviour
         EmgScore = 0f;
         EmgTimestamp = 0.0;
         EmgDetails = "";
+        HasStartedScoring = false;
         IsScorePaused = false;
         nextPenaltytime = 0.0;
         ResetSection();
         RefreshUI();
+    }
+
+    public void BeginScoring()
+    {
+        if (HasStartedScoring) return;
+        HasStartedScoring = true;
+        ResetSection();
     }
 
     public void SetEmgScore(float score, double timestamp)

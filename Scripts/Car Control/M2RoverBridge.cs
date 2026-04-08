@@ -143,7 +143,7 @@ namespace CORC.Demo
 
         public bool EmgIsRecording => emgIsRecording;
 
-        private bool TryStartRecording(string indicateTxT)
+        private bool TryStartRecording()
         {
             if (!IsEmgReady() || emgIsRecording) return false;
 
@@ -151,11 +151,10 @@ namespace CORC.Demo
             delsysEMG.StartRecording(emgPath, Time.timeAsDouble);
             emgIsRecording = true;
             emgTrialIndex++;
-            Debug.Log($"[M2RoverBridge] EMG recording started ({indicateTxT}).");
             return true;
         }
 
-        private bool TryStopRecording(string indicateTxT)
+        private bool TryStopRecording()
         {
             if (!emgIsRecording) return false;
 
@@ -163,18 +162,17 @@ namespace CORC.Demo
                 delsysEMG.StopRecording();
 
             emgIsRecording = false;
-            Debug.Log($"[M2RoverBridge] EMG recording stopped ({indicateTxT}).");
             return true;
         }
 
         public bool StartEmgRecordingManual()
         {
-            return TryStartRecording("manual");
+            return TryStartRecording();
         }
 
         public bool StopEmgRecordingManual()
         {
-            return TryStopRecording("manual");
+            return TryStopRecording();
         }
 
         private void ShutdownEMG()
@@ -184,7 +182,7 @@ namespace CORC.Demo
 
             if (!delsysEnable) return;
 
-            try { TryStopRecording("shutdown"); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG stop recording during shutdown failed: {ex.Message}"); }
+            try { TryStopRecording(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG stop recording during shutdown failed: {ex.Message}"); }
             try { if (delsysEMG.IsRunning()) delsysEMG.StopAcquisition(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG stop acquisition during shutdown failed: {ex.Message}"); }
             try { if (delsysEMG.IsConnected()) delsysEMG.Close(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG close during shutdown failed: {ex.Message}"); }
         }
@@ -201,7 +199,7 @@ namespace CORC.Demo
             bool active = delsysEnable && delsysEMG.IsConnected() && delsysEMG.IsRunning();
             if (!active)
             {
-                string inactiveText = "EMGSc: -- | t: --";
+                string inactiveText = $"EMGSc: -- | t: {Time.timeAsDouble:0.0}s";
                 if (hasText) emgScoreText.text = inactiveText;
                 ScoreManager.Instance?.SetEmgPreview(0f, Time.timeAsDouble, inactiveText);
                 return;
@@ -210,7 +208,7 @@ namespace CORC.Demo
             float[] raw = delsysEMG.GetRawEMGData();
             if (raw == null || raw.Length == 0)
             {
-                string emptyText = "EMGSc: -- | t: --";
+                string emptyText = $"EMGSc: -- | t: {Time.timeAsDouble:0.0}s";
                 if (hasText) emgScoreText.text = emptyText;
                 ScoreManager.Instance?.SetEmgPreview(0f, Time.timeAsDouble, emptyText);
                 return;
@@ -358,7 +356,7 @@ namespace CORC.Demo
                 if (!isPaused) isDriving = true;
                 worldFollower?.ResetBias();
 
-                TryStartRecording("trial begin");
+                TryStartRecording();
 
                 if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(false);
             }
@@ -367,7 +365,7 @@ namespace CORC.Demo
         // This should be called when the trial ends
         public void NotifyTrialEnd()
         {
-            TryStopRecording("trial end");
+            TryStopRecording();
 
             trialActive = false;
             syncRefReady = false;

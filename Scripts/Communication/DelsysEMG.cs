@@ -261,7 +261,6 @@ public class DelsysEMG
         }
 
         
-
         //Establish data connections and creat streams
         emgSocket = new TcpClient("localhost", emgDataPort);
 
@@ -315,8 +314,8 @@ public class DelsysEMG
             Debug.Log("Delsys->: Server stops!");
     }
 
-    //Start log to csv
 
+    //Start log to csv
     public void StartRecording(String filename, double bridgeStartTime = double.NaN)
     {
         string dir = Path.GetDirectoryName(filename);
@@ -358,10 +357,8 @@ public class DelsysEMG
         Debug.Log("Delsys-> " + sampleCount + " samples recorded.");
     }
 
-
-
-
     #endregion
+
 
     #region Get sensor status and readings
     //Return the latest readings
@@ -413,7 +410,6 @@ public class DelsysEMG
         ResetLocalState();
     }
 
-
     #endregion
 
 
@@ -454,10 +450,10 @@ public class DelsysEMG
         return response;    //return the response we got
     }
 
-    // Thread for imu emg acquisition
+    // Thread for emg acquisition
     private void ImuEmgThreadRoutine(object state)
     {
-       // emgStream.ReadTimeout = 100000;    //set timeout
+       emgStream.ReadTimeout = 100000;    //set timeout, unit: ms
 
         BinaryReader reader = new BinaryReader(emgStream);
         float[] frame = new float[16];
@@ -485,24 +481,5 @@ public class DelsysEMG
         }
 
     }
-
-
-    /*
-    // Check time interval
-    public float CheckSamplingInterval()
-    {
-        float samplingRate;
-
-        string interval = SendCommand("FRAME INTERVAL?");
-        string maxSample = SendCommand("MAX SAMPLES EMG?");
-
-        //Debug.Log(interval);
-        //Debug.Log(maxSample);
-
-        samplingRate = float.Parse(interval)/float.Parse(maxSample);
-        return samplingRate;
-    }
-    */
-
 
 }

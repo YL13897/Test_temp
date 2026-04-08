@@ -14,7 +14,8 @@ public class LeaderHandler : MonoBehaviour
     [SerializeField] float lateralDamping = 0.5f;
 
     [Header("Auto Steer")]
-    [SerializeField] float steerSpeed = 10f;
+    [SerializeField] float steerSpeed = 10f; // m/s
+    [SerializeField] float moveDelay = 1.3f; // Unit: second
     [SerializeField] float arriveToleranceX = 0.05f;
     [SerializeField] float leftTargetX = -8f;
     [SerializeField] float centerTargetX = 0f;
@@ -24,6 +25,7 @@ public class LeaderHandler : MonoBehaviour
     float centerX;
     float rightX;
     float targetX;
+    float moveDelayTimer;
     bool wasRoverInForceField;
     ForceField[] forceFields;
 
@@ -57,6 +59,7 @@ public class LeaderHandler : MonoBehaviour
         if (roverInForceField)
         {
             wasRoverInForceField = true;
+            moveDelayTimer = 0f;
             HoldLateralPosition();
             return;
         }
@@ -64,7 +67,15 @@ public class LeaderHandler : MonoBehaviour
         if (wasRoverInForceField)
         {
             SelectNextTargetX();
+            moveDelayTimer = moveDelay;
             wasRoverInForceField = false;
+        }
+
+        if (moveDelayTimer > 0f)
+        {
+            moveDelayTimer = Mathf.Max(0f, moveDelayTimer - Time.fixedDeltaTime);
+            HoldLateralPosition();
+            return;
         }
 
         AutoSteerToTargetX();

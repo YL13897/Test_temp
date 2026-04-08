@@ -46,9 +46,8 @@ public class ScoreSystem : MonoBehaviour
     {
         // if (targetRb == null || leaderRb == null || ScoreManager.Instance == null) return;
 
-        if (ScoreManager.Instance.IsScorePaused)
+        if (!ScoreManager.Instance.HasStartedScoring || ScoreManager.Instance.IsScorePaused)
         {
-            targetRb.linearVelocity = Vector3.zero;
             return;
         }
 
