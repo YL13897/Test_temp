@@ -52,8 +52,14 @@ public class DelsysEMG
 
     //The following are storage for acquired data
     private float[] tempEmgDataList = new float[16];
+    private float[] tempFilteredEmgDataList = new float[16];
+    private float[] tempRectifiedEmgDataList = new float[16];
+    private float[] filterInputFrame = new float[16];
+    private float[] filterOutputFrame = new float[16];
+    private float[] rectifiedOutputFrame = new float[16];
     private readonly object dataLock = new object();
     private readonly object recordingLock = new object();
+    private EMGFilter emgFilter;
 
     //Sensor status
     private bool connected = false; //true if connected to server
@@ -75,10 +81,19 @@ public class DelsysEMG
         _sensors.Clear();
 
         for (int i = 0; i < tempEmgDataList.Length; i++)
+        {
             tempEmgDataList[i] = 0f;
+            tempFilteredEmgDataList[i] = 0f;
+            tempRectifiedEmgDataList[i] = 0f;
+            filterInputFrame[i] = 0f;
+            filterOutputFrame[i] = 0f;
+            rectifiedOutputFrame[i] = 0f;
+        }
 
         recording = false;
         running = false;
+        if (emgFilter != null)
+            emgFilter.ResetFilters();
         CloseRecordingWriter();
     }
 
@@ -142,9 +157,12 @@ public class DelsysEMG
 
     #region Initialization and connection
     //Initialization
-    public void Init()
+    public void Init(EMGFilter filter = null)
     {
         ResetLocalState();
+        emgFilter = filter;
+        if (emgFilter != null)
+            emgFilter.Configure(tempEmgDataList.Length, samplingInterval > 0f ? 1f / samplingInterval : 1111.1111f);
         sensorList.Clear();
         sensorList.Add("A", SensorTypes.SensorTrigno);
         sensorList.Add("D", SensorTypes.SensorTrigno);
@@ -366,16 +384,7 @@ public class DelsysEMG
     {
         lock (dataLock)
         {
-            float[] data = new float[activeSensorChannels.Count];
-
-            int activeSensroNb = 0;
-            foreach (int element in activeSensorChannels)
-            {
-                data[activeSensroNb] = tempEmgDataList[element - 1];
-                activeSensroNb++;
-            }
-
-            return data;
+            return CopyActiveChannelData(tempEmgDataList);
         }
     }
 
@@ -388,7 +397,20 @@ public class DelsysEMG
     // Return status
     public bool IsConnected() { return connected; }
     public bool IsRunning() { return running; }
-   
+
+    private float[] CopyActiveChannelData(float[] source)
+    {
+        float[] data = new float[activeSensorChannels.Count];
+
+        int activeSensorNb = 0;
+        foreach (int element in activeSensorChannels)
+        {
+            data[activeSensorNb] = source[element - 1];
+            activeSensorNb++;
+        }
+
+        return data;
+    }
 
     private void MarkDisconnected(string context, Exception ex = null)
     {
@@ -465,10 +487,22 @@ public class DelsysEMG
                 for (int sn = 0; sn < 16; ++sn)
                     frame[sn] = reader.ReadSingle();
 
+                if (emgFilter != null)
+                {
+                    for (int sn = 0; sn < 16; ++sn)
+                        filterInputFrame[sn] = frame[sn];
+
+                    emgFilter.ProcessFrame(filterInputFrame, filterOutputFrame, rectifiedOutputFrame);
+                }
+
                 lock (dataLock)
                 {
                     for (int sn = 0; sn < 16; ++sn)
+                    {
                         tempEmgDataList[sn] = frame[sn];
+                        tempFilteredEmgDataList[sn] = emgFilter != null ? filterOutputFrame[sn] : frame[sn];
+                        tempRectifiedEmgDataList[sn] = emgFilter != null ? rectifiedOutputFrame[sn] : Mathf.Abs(frame[sn]);
+                    }
                 }
 
                 WriteRecordingFrame(frame);
