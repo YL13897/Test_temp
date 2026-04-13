@@ -2257,9 +2257,8 @@ MonoBehaviour:
   autoSnapOnM2Reconnect: 1
   sendRateHz: 80
   delsysEnable: 1
-  emgFilter: {fileID: 0}
+  emgFilter: {fileID: 1910340486}
   emgTrialIndex: 0
-  emgIsRecording: 1
   emgPreviewMaxChannels: 8
   emgPreviewHz: 5
 --- !u!1 &507810783
@@ -2332,10 +2331,10 @@ MonoBehaviour:
   serverPort: 2048
   autoReconnect: 1
   reconnectInterval: 2
-  enableCsvLogging: 1
+  enableCsvLogging: 0
   csvPathOverride: 
   m2: {fileID: 507810787}
-  bridge: {fileID: 0}
+  bridge: {fileID: 481331130}
 --- !u!114 &507810787
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7820,7 +7819,6 @@ MonoBehaviour:
   highPassHz: 15
   lowPassHz: 400
   envelopeHz: 5
-  keepHistory: 1
   historySamples: 512
 --- !u!120 &1910340488
 LineRenderer:
