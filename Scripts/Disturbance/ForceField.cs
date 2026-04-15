@@ -151,7 +151,8 @@ public class ForceField : MonoBehaviour
             && bridge.unityMode == CORC.Demo.M2RoverBridge.UnityDriveMode.Mode2_M2
             && bridge.hriModeCode == 2) return;
 
-        Vector3 dir = fixedDirection.normalized;
+        int previewDirection = forceFieldPreview != null ? forceFieldPreview.CurrentDirection : 0;
+        Vector3 dir = previewDirection < 0 ? Vector3.left : previewDirection > 0 ? Vector3.right : fixedDirection.normalized;
         
         targetRb.AddForce(dir * (forceMagnitude * DisturbanceU), ForceMode.Force);
         // targetRb.MovePosition(targetRb.position + dir * speed * Time.fixedDeltaTime);

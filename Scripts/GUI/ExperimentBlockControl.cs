@@ -4,11 +4,21 @@ using TMPro;
 
 public class ExperimentBlockControl : MonoBehaviour
 {
+    struct TrialSpec
+    {
+        public float leaderTargetX;
+        public int previewDirection;
+
+        public TrialSpec(float leaderTargetX, int previewDirection)
+        {
+            this.leaderTargetX = leaderTargetX;
+            this.previewDirection = previewDirection < 0 ? -1 : 1;
+        }
+    }
+
     public static ExperimentBlockControl Instance { get; private set; }
 
     [Header("Block Config")]
-    [SerializeField] int trialsPerBlock = 3;
-    [SerializeField] int leftTrialsPerBlock = 1;
     [SerializeField] float RecoverySeconds = 1f;
     [SerializeField] float[] blockProbabilities =
     {
@@ -22,6 +32,12 @@ public class ExperimentBlockControl : MonoBehaviour
         15f / 16f,
         31f / 32f
     };
+
+    [Header("Episode Mix")]
+    [SerializeField] int leftLfCount = 10;
+    [SerializeField] int rightRfCount = 10;
+    [SerializeField] int leftRfCount = 10;
+    [SerializeField] int rightLfCount = 10;
 
     [Header("Refs")]
     [SerializeField] LeaderHandler leader;
@@ -42,6 +58,7 @@ public class ExperimentBlockControl : MonoBehaviour
     float nextBlockStartAt = -1f;
     bool waitingForReturnAck = false;
     bool receivedReturnAck = false;
+    readonly List<TrialSpec> currentBlockTrials = new List<TrialSpec>();
     
 
     // CurrentBlockProbability: returns the probability for the currently prepared block, or 0 if no block is prepared or all blocks are completed. 
@@ -60,6 +77,12 @@ public class ExperimentBlockControl : MonoBehaviour
     public bool ShouldAutoPauseNow => autoPauseAtTime >= 0f && autoPauseAtTime != AutoPauseRequested && Time.time >= autoPauseAtTime;
     public bool CountdownActive => nextBlockStartAt >= 0f && Time.time < nextBlockStartAt;
     public float CountdownRemain => CountdownActive ? nextBlockStartAt - Time.time : 0f;
+    public int CurrentDirection => GetCurrentTrialSpec().previewDirection;
+    int TrialsPerBlock => Mathf.Max(1,
+        Mathf.Max(0, leftLfCount) +
+        Mathf.Max(0, rightRfCount) +
+        Mathf.Max(0, leftRfCount) +
+        Mathf.Max(0, rightLfCount));
 
     void Awake()
     {
@@ -75,7 +98,6 @@ public class ExperimentBlockControl : MonoBehaviour
             leader = FindFirstObjectByType<LeaderHandler>();
 
         recoverySecondsClamped = Mathf.Max(0f, RecoverySeconds);
-        leftTrialsPerBlock = Mathf.Clamp(leftTrialsPerBlock, 0, trialsPerBlock);
         RefreshUi();
     }
 
@@ -110,6 +132,7 @@ public class ExperimentBlockControl : MonoBehaviour
         waitingForReturnAck = false;
         receivedReturnAck = false;
         leader.ClearBlockLaneSequence();
+        currentBlockTrials.Clear();
         RefreshUi();
     }
 
@@ -157,10 +180,10 @@ public class ExperimentBlockControl : MonoBehaviour
         if (!blockRunning) return;
         if (autoPauseAtTime >= 0f) return;
         if (pendingCompleteTrigger) return;
-        if (trialInBlock >= trialsPerBlock) return;
+        if (trialInBlock >= TrialsPerBlock) return;
 
         trialInBlock++;
-        if (trialInBlock >= trialsPerBlock)
+        if (trialInBlock >= TrialsPerBlock)
             pendingCompleteTrigger = true;
 
         RefreshUi();
@@ -202,14 +225,6 @@ public class ExperimentBlockControl : MonoBehaviour
         return TryAdvancePendingCompletion();
     }
 
-    // AdvanceBlock(): To be called to move to the next block after completing the current one. 
-    // Returns true if successfully advanced to the next block; False if there are no more blocks left.
-    public bool AdvanceBlock()
-    {
-        if (autoPauseAtTime < 0f) return false;
-        return AdvanceBlockInternal();
-    }
-
     public bool TryAdvancePendingCompletion()
     {
         if (!waitingForReturnAck) return false;
@@ -244,6 +259,7 @@ public class ExperimentBlockControl : MonoBehaviour
     {
         if (!HasPreparedBlock) return;
 
+        BuildCurrentBlockTrials();
         trialInBlock = 0;
         blockRunning = false;
         pendingCompleteTrigger = false;
@@ -259,23 +275,50 @@ public class ExperimentBlockControl : MonoBehaviour
     // Returns an array of target X positions for each trial in the block.
     float[] BuildLaneSequence()
     {
-        List<float> sequence = new List<float>(trialsPerBlock);
-        int centerTrials = Mathf.Max(0, trialsPerBlock - leftTrialsPerBlock);
-
-        for (int i = 0; i < leftTrialsPerBlock; i++)
-            sequence.Add(leader.LeftLaneX);
-
-        for (int i = 0; i < centerTrials; i++)
-            sequence.Add(leader.CenterLaneX);
-
-        // Fisher-Yates shuffle
-        for (int i = sequence.Count - 1; i > 0; i--)
-        {
-            int j = Random.Range(0, i + 1); // [0, i] (inclusive of 0, exclusive of i+1)
-            (sequence[i], sequence[j]) = (sequence[j], sequence[i]);
-        }
+        List<float> sequence = new List<float>(TrialsPerBlock);
+        for (int i = 0; i < TrialsPerBlock; i++)
+            sequence.Add(GetTrialSpecAtBlockIndex(i).leaderTargetX);
 
         return sequence.ToArray();
+    }
+
+    void BuildCurrentBlockTrials()
+    {
+        currentBlockTrials.Clear();
+        if (leader == null) return;
+
+        for (int i = 0; i < Mathf.Max(0, leftLfCount); i++)
+            currentBlockTrials.Add(new TrialSpec(leader.LeftLaneX, -1));
+        for (int i = 0; i < Mathf.Max(0, rightRfCount); i++)
+            currentBlockTrials.Add(new TrialSpec(leader.RightLaneX, 1));
+        for (int i = 0; i < Mathf.Max(0, leftRfCount); i++)
+            currentBlockTrials.Add(new TrialSpec(leader.LeftLaneX, 1));
+        for (int i = 0; i < Mathf.Max(0, rightLfCount); i++)
+            currentBlockTrials.Add(new TrialSpec(leader.RightLaneX, -1));
+
+        if (currentBlockTrials.Count == 0)
+            currentBlockTrials.Add(new TrialSpec(leader.LeftLaneX, -1));
+
+        for (int i = currentBlockTrials.Count - 1; i > 0; i--)
+        {
+            int j = Random.Range(0, i + 1);
+            (currentBlockTrials[i], currentBlockTrials[j]) = (currentBlockTrials[j], currentBlockTrials[i]);
+        }
+    }
+
+    TrialSpec GetCurrentTrialSpec()
+    {
+        int IndexInBlock = Mathf.Clamp(Mathf.Max(0, trialInBlock - 1), 0, Mathf.Max(0, TrialsPerBlock - 1));
+        return GetTrialSpecAtBlockIndex(IndexInBlock);
+    }
+
+    TrialSpec GetTrialSpecAtBlockIndex(int blockIndex)
+    {
+        if (currentBlockTrials.Count == 0)
+            return new TrialSpec(leader != null ? leader.LeftLaneX : 0f, -1);
+
+        int clampedIndex = Mathf.Clamp(blockIndex, 0, currentBlockTrials.Count - 1);
+        return currentBlockTrials[clampedIndex];
     }
 
 
@@ -289,8 +332,8 @@ public class ExperimentBlockControl : MonoBehaviour
             }
             else
             {
-                int displayTrial = Mathf.Clamp(trialInBlock, 0, Mathf.Max(1, trialsPerBlock));
-                trialIndexText.text = $"Trial: {displayTrial}/{trialsPerBlock}";
+                int displayTrial = Mathf.Clamp(trialInBlock, 0, Mathf.Max(1, TrialsPerBlock));
+                trialIndexText.text = $"Trial: {displayTrial}/{TrialsPerBlock}";
             }
         }
 

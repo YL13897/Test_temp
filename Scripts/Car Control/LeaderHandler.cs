@@ -36,6 +36,7 @@ public class LeaderHandler : MonoBehaviour
 
     public float LeftLaneX => leftX;
     public float CenterLaneX => centerX;
+    public float RightLaneX => rightX;
 
     void Awake()
     {

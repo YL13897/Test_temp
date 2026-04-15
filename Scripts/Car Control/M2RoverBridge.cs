@@ -600,12 +600,12 @@ namespace CORC.Demo
 
             // Use the same Unity disturbance source u(t) for both local simulation and M2 signaling.
             bool state = ForceField.DisturbanceU > 0.5f;
-            float durationSec = Mathf.Max(0f, ForceField.DisturbanceDurationSec);
+            int direction = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentDirection : -1;
+            double disturbanceCmd = state ? (direction < 0 ? -1.0 : 1.0) : 0.0;
 
             if (!hasSentDisturbanceState || state != lastDisturbanceState)
             {
-                if (state) m2.SendCmd("DSTR", new double[] { 1.0});
-                else m2.SendCmd("DSTR", new double[] { 0.0 });
+                m2.SendCmd("DSTR", new double[] { disturbanceCmd });
                 lastDisturbanceState = state;
                 hasSentDisturbanceState = true;
             }
