@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class LeaderHandler : MonoBehaviour
@@ -28,10 +29,19 @@ public class LeaderHandler : MonoBehaviour
     float moveDelayTimer;
     bool wasRoverInForceField;
     ForceField[] forceFields;
+    readonly Queue<float> scheduledTargetQueue = new Queue<float>();
+    bool useScheduledTargets = false;
+    Vector3 initialPosition;
+    // Quaternion initialRotation;
+
+    public float LeftLaneX => leftX;
+    public float CenterLaneX => centerX;
 
     void Awake()
     {
         rb ??= GetComponent<Rigidbody>();
+        initialPosition = transform.position;
+        // initialRotation = transform.rotation;
         TryFindRover();
         ReadLaneReferences();
         targetX = transform.position.x;
@@ -111,6 +121,45 @@ public class LeaderHandler : MonoBehaviour
         if (isPaused) isDriving = false;
     }
 
+    // SetBlockLaneSequence(): Set a specific sequence of target X positions for the current block.
+    // If the sequence is null or empty, the leader will choose target lanes randomly for each block.
+    public void SetBlockLaneSequence(IReadOnlyList<float> targetSequence)
+    {
+        scheduledTargetQueue.Clear();
+
+        if (targetSequence == null || targetSequence.Count == 0)
+        {
+            useScheduledTargets = false;
+            return;
+        }
+
+        for (int i = 0; i < targetSequence.Count; i++)
+            scheduledTargetQueue.Enqueue(targetSequence[i]); // Enqueue the provided sequence of target X positions
+
+        useScheduledTargets = true;
+    }
+
+    public void ClearBlockLaneSequence()
+    {
+        scheduledTargetQueue.Clear();
+        useScheduledTargets = false;
+    }
+
+    public void ResetForBlockStart()
+    {
+        transform.position = initialPosition;
+        // transform.rotation = initialRotation;
+        if (rb != null)
+        {
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        moveDelayTimer = 0f;
+        wasRoverInForceField = false;
+        targetX = rb != null ? rb.position.x : transform.position.x;
+    }
+
     void TryFindRover()
     {
         if (leaderRB != null) return;
@@ -151,6 +200,12 @@ public class LeaderHandler : MonoBehaviour
 
     void SelectNextTargetX()
     {
+        if (useScheduledTargets && scheduledTargetQueue.Count > 0)
+        {
+            targetX = scheduledTargetQueue.Dequeue();
+            return;
+        }
+
         float p = Random.value;
         if (p < 1f / 3f) targetX = rightX;
         else if (p < 2f / 3f) targetX = leftX;

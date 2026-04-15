@@ -2,8 +2,13 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+// EndlessRoad: Manages the endless road sections in the scene by pooling and repositioning them based on the player's position.
+// This will not influence scoring or block progression logic, which is handled separately by the ExperimentBlockControl and ScoreManager.
+// (The randomization is not necessary for the current experiment setup,but it is implemented to allow for ylater expansion .)
 public class EndlessRoad : MonoBehaviour
 {
+    [SerializeField]
+    GameObject beginSection;
 
     [SerializeField]
     GameObject[] sectionsPrefabs;
@@ -13,6 +18,7 @@ public class EndlessRoad : MonoBehaviour
     GameObject[] sections = new GameObject[10];
 
     Transform playerCarTransform;
+    Vector3 beginSectionInitialPosition;
 
     WaitForSeconds waitFor100ms = new WaitForSeconds(0.1f);
 
@@ -26,6 +32,8 @@ public class EndlessRoad : MonoBehaviour
     void Start()
     {
         playerCarTransform = GameObject.FindGameObjectWithTag("Player").transform;
+        if (beginSection != null)
+            beginSectionInitialPosition = beginSection.transform.position;
 
         int prefabIndex = 0;
 
@@ -45,7 +53,7 @@ public class EndlessRoad : MonoBehaviour
         }
 
 
-        ResetRoadAroundPlayer();
+        BeginSectionBuildRoad();
 
         StartCoroutine(UpdateLessOftenCO());
     }
@@ -66,11 +74,43 @@ public class EndlessRoad : MonoBehaviour
                 sectionsPool[i].SetActive(false);
         }
 
-        float baseZ = playerCarTransform.position.z;
+        if (beginSection != null)
+        {
+            beginSection.transform.position = beginSectionInitialPosition;
+            beginSection.SetActive(false);
+            beginSection.SetActive(true);
+        }
+
+        float beginZ = beginSection != null ? beginSection.transform.position.z : playerCarTransform.position.z;
+        BuildPooledSections(beginZ);
+    }
+
+    void BeginSectionBuildRoad()
+    {
+        if (playerCarTransform == null)
+        {
+            var p = GameObject.FindGameObjectWithTag("Player");
+            if (p == null) return;
+            playerCarTransform = p.transform;
+        }
+
+        for (int i = 0; i < sectionsPool.Length; i++)
+        {
+            if (sectionsPool[i] != null)
+                sectionsPool[i].SetActive(false);
+        }
+
+        float beginZ = beginSection != null ? beginSection.transform.position.z : playerCarTransform.position.z;
+        BuildPooledSections(beginZ);
+    }
+
+    void BuildPooledSections(float beginZ)
+    {
+        int pooledStartOffset = beginSection != null ? 2 : 1;
         for (int i = 0; i < sections.Length; i++)
         {
-            GameObject randomSection = GetRandomSectionFromPool();
-            randomSection.transform.position = new Vector3(randomSection.transform.position.x, 0, baseZ + (i + 1) * sectionLength);
+            GameObject randomSection = GetSectionFromPool();
+            randomSection.transform.position = new Vector3(randomSection.transform.position.x, 0, beginZ + (i + pooledStartOffset - 1) * sectionLength);
             randomSection.SetActive(true);
             sections[i] = randomSection;
         }
@@ -97,7 +137,7 @@ public class EndlessRoad : MonoBehaviour
                 sections[i].SetActive(false);
 
                 // Get new section and enable it and move it forward
-                sections[i] = GetRandomSectionFromPool();
+                sections[i] = GetSectionFromPool();
 
                 //Move the new section into place and active it
                 sections[i].transform.position = new Vector3(lastSectionPosition.x, 0, lastSectionPosition.z + sectionLength * sections.Length);
@@ -108,9 +148,8 @@ public class EndlessRoad : MonoBehaviour
     }
 
 
-    GameObject GetRandomSectionFromPool()
+    GameObject GetSectionFromPool()
     {
-
         // Pick a random index and hope that it is available
         int randomIndex = Random.Range(0, sectionsPool.Length);
 
@@ -128,8 +167,6 @@ public class EndlessRoad : MonoBehaviour
                 if(randomIndex > sectionsPool.Length - 1)
                 {randomIndex = 0;}
             }
-
-
         }
 
         return sectionsPool[randomIndex];

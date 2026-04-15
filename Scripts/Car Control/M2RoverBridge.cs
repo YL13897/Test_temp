@@ -381,11 +381,17 @@ namespace CORC.Demo
             syncRefReady = false;
             if (unityMode == UnityDriveMode.Mode2_M2 && isDriving) isDriving = false;
             worldFollower?.ResetBias();
-            // SendFeedbackForce(0f, 0f);
-            if (m2 != null && m2.IsInitialised() && m2.Client != null && m2.Client.IsConnected())
-                m2.SendCmd("DSTR", new double[] { 0.0 }); // Ensure disturbance is turned off at trial end
             hasSentDisturbanceState = false;
             lastDisturbanceState = false;
+            if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(true);
+        }
+
+        public void StopTrialMotionImmediate()
+        {
+            isDriving = false;
+            ApplyRoverSteer(0f);
+            rover?.Brake();
+            leader?.Brake();
             if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(true);
         }
 
@@ -443,6 +449,45 @@ namespace CORC.Demo
                 if (!go.activeSelf) continue;
                 go.SetActive(false); 
                 go.SetActive(true); 
+            }
+        }
+
+        public void ResetForNextExperimentBlock()
+        {
+            trialActive = false;
+            syncRefReady = false;
+            hasSentDisturbanceState = false;
+            lastDisturbanceState = false;
+            isPaused = false;
+            isDriving = false;
+
+            ResetRoverToInitialPose();
+            ApplyRoverSteer(0f);
+            worldFollower?.ResetBias();
+            leader?.ResetForBlockStart();
+
+            if (ScoreManager.Instance != null)
+            {
+                ScoreManager.Instance.ResetBlockScores();
+                ScoreManager.Instance.SetScorePaused(true);
+            }
+
+            ForceField.ResetFirstEntryFlag();
+
+            var road = FindFirstObjectByType<EndlessRoad>();
+            if (road != null)
+                road.ResetRoadAroundPlayer();
+
+            var fields = FindObjectsByType<ForceField>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+            // Reset all force fields, including inactive ones, to ensure they are in the correct state for the new block.
+            foreach (var f in fields) 
+            {
+                if (f == null) continue;
+                var go = f.gameObject;
+                bool wasActive = go.activeSelf;
+                go.SetActive(false);
+                go.SetActive(wasActive);
             }
         }
 

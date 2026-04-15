@@ -88,6 +88,23 @@ public class ScoreManager : MonoBehaviour
         RefreshUI();
     }
 
+    public void ResetBlockScores()
+    {
+        GlobalScore = 0f;
+        SectionScore = 0f;
+        HasStartedScoring = false;
+        nextPenaltytime = 0.0;
+
+        if (sectionBar != null)
+        {
+            sectionBar.minValue = 0f;
+            sectionBar.maxValue = 9f;
+            sectionBar.value = 0f;
+        }
+
+        RefreshUI();
+    }
+
     public void AddToScores(float delta)
     {
         GlobalScore += delta;

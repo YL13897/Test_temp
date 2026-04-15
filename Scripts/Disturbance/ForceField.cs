@@ -29,6 +29,12 @@ public class ForceField : MonoBehaviour
     private bool playerInsideThisActiveField = false;
     private float disturbanceElapsedSec = 0f;
 
+    void Awake()
+    {
+        if (forceFieldPreview == null)
+            forceFieldPreview = GetComponent<ForceFieldPreview>();
+    }
+
     // ResetFirstEntryFlag(): Resets the static flags related to player entry and disturbance.
     public static void ResetFirstEntryFlag()
     {
@@ -82,23 +88,17 @@ public class ForceField : MonoBehaviour
         }
 
         // Read the trigger probability for this force field from the ForceFieldPreview component.
-        float Probability = forceFieldPreview.triggerProbability; 
+        float Probability = forceFieldPreview.triggerProbability;
 
         // sample ONCE per section reuse
         IsActiveThisRun = UnityEngine.Random.value < Probability;
 
 
+        // ----------------------- For testing: keep the field always active -----------------------
 
+        // IsActiveThisRun = true; 
 
-
-
-        IsActiveThisRun = true; // For testing to keep the field always active
-
-
-
-
-
-
+        // -----------------------------------------------------------------------------------------
 
 
         if (!IsActiveThisRun) return;

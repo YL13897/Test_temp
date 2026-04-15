@@ -47,6 +47,7 @@ namespace CORC.Demo
         private int pendingCtrl = 1;
         private readonly Color startRecIdleColor = new Color(0.85f, 0.85f, 0.85f, 1f);
         private readonly Color startRecActiveColor = new Color(0.25f, 0.70f, 0.25f, 1f);
+        private ExperimentBlockControl blockControl;
 
         // Helper to parse double with fallback
         // private static bool TryParse(string s, out double v, double fallback = 0) { if (double.TryParse(s, out v)) return true; v = fallback; return false; }
@@ -77,10 +78,11 @@ namespace CORC.Demo
         private void SetCommandButtonsInteractable()
         {
             bool isM2Mode = bridge != null && bridge.unityMode == M2RoverBridge.UnityDriveMode.Mode2_M2;
+            bool canStartBlock = blockControl != null && blockControl.CanStartPreparedBlock();
             if (confirmUnityModeBtn) confirmUnityModeBtn.interactable = true;
             if (confirmModeBtn) confirmModeBtn.interactable = true;
             if (confirmModeBtn1) confirmModeBtn1.interactable = true;
-            if (startExperimentBtn) startExperimentBtn.interactable = isM2Mode && bginReady && !pendingHriApply && !pendingCtrlApply;
+            if (startExperimentBtn) startExperimentBtn.interactable = isM2Mode && bginReady && !pendingHriApply && !pendingCtrlApply && canStartBlock;
             if (returnWaitStartBtn) returnWaitStartBtn.interactable = isM2Mode && bginReady;
             if (toAButton) toAButton.interactable = isM2Mode;
             if (emergencyStopBtn) emergencyStopBtn.interactable = isM2Mode;
@@ -276,9 +278,38 @@ namespace CORC.Demo
                 return;
             }
 
+            if (blockControl == null || !blockControl.CanStartPreparedBlock())
+            {
+                if (statusTxt)
+                    SetStatus(Color.yellow, blockControl != null && blockControl.IsRoundComplete ? "Round completed." : "Waiting for next block.");
+                return;
+            }
+
             proxy.SendCmd("TRBG");  // Use TRBG as the default start command for backward compatibility
             Debug.Log($"[UI] Sent start cmd: TRBG");
             if (statusTxt) SetStatus(Color.white, "TRBG");
+        }
+
+        public bool PauseOnBlockCompletion()
+        {
+            if (proxy == null || !proxy.IsReady)
+                return false;
+            if (!bginReady)
+                return false;
+            if (blockControl == null)
+                return false;
+
+            proxy.SendCmd("RWST"); // RWST: Return to WAIT_START, which ends the current trial/block in M2 logic.
+            if (bridge)
+                bridge.StopTrialMotionImmediate();
+
+            blockControl.MarkAutoPauseRequested();
+            SetCommandButtonsInteractable();
+            if (statusTxt)
+                SetStatus(Color.white, "Block completed. Returning to WAIT_START...");
+
+            Debug.Log("[UI] Auto-sent RWST for completed block");
+            return true;
         }
 
         private void OnToA()
@@ -294,7 +325,7 @@ namespace CORC.Demo
                 return;
             }
 
-            proxy.SendCmd("TO_A");
+            proxy.SendCmd("TO_A"); // TO_A: Return to A, which considered as the standby state before starting the trial in M2 logic.
             SetCommandButtonsInteractable();
             if (statusTxt)
             {
@@ -316,12 +347,13 @@ namespace CORC.Demo
                 return;
             }
 
-            proxy.SendCmd("RWST");
+            proxy.SendCmd("RWST"); // RWST: Return to WAIT_START, which ends the current trial/block in M2 logic.
             if (bridge)
             {
-                bridge.NotifyTrialEnd();
+                bridge.StopTrialMotionImmediate();
                 bridge.ResetRoverToInitialPose();
             }
+            blockControl.AbortCurrentBlock();
             SetCommandButtonsInteractable();
 
             if (statusTxt)
@@ -339,7 +371,11 @@ namespace CORC.Demo
                 return;
             }
 
-            proxy.SendCmd("SESS");
+            proxy.SendCmd("SESS"); // SESS: the emergency stop command that also ends the current block in M2 logic.
+                                   // Different from RWST, SESS is for emergency stop and will reset the block/trial state, 
+                                   // while RWST is for normal block completion and will prepare for the next trial/block.
+                                   // After SESS, user needs to press BGIN again before starting a new trial, 
+                                   // while after RWST, user can directly start the next trial.
             if (bridge)
             {
                 bridge.NotifyTrialEnd();
@@ -394,6 +430,8 @@ namespace CORC.Demo
 
             if (bridge == null)
                 bridge = FindFirstObjectByType<M2RoverBridge>();
+            blockControl = FindFirstObjectByType<ExperimentBlockControl>();
+            SetCommandButtonsInteractable();
 
             RecordBtnInteract();
 
@@ -417,6 +455,16 @@ namespace CORC.Demo
             }
 
             TryApplyPendingM2Setup();
+            SetCommandButtonsInteractable();
+
+            if (blockControl != null && blockControl.ShouldAutoPauseNow)
+                PauseOnBlockCompletion();
+
+            if (blockControl != null && blockControl.TryAdvancePendingCompletion())
+            {
+                if (bridge) bridge.ResetForNextExperimentBlock();
+                SetCommandButtonsInteractable();
+            }
 
             var t = proxy.Time;
             var X = proxy.X;
@@ -436,19 +484,21 @@ namespace CORC.Demo
                 var p = c.parameters ?? Array.Empty<double>();
                 Debug.Log($"[UI Received] {cmd} ({p.Length} params)");
 
-                if (cmd == "TRBG")
+                if (cmd == "TRBG") // TRBG: Trial/Block Begin, we can update the UI and notify block control/bridge to start the trial.
                 {
                     if (statusTxt) SetStatus(Color.white, "Trial in progress...");
+                    blockControl?.NotifyBlockStarted();
                     if (bridge) bridge.NotifyTrialBegin();
                     SetCommandButtonsInteractable();
                 }
-                else if (cmd == "BGOK")
+                else if (cmd == "BGOK") // BGOK: M2 is ready at A after BGIN, and we can apply pending mode settings and allow block start.
                 {
                     bginReady = true;
+                    blockControl?.PrepareRound();
                     if (bridge)
                     {
                         bridge.NotifyTrialEnd();
-                        bridge.ResetRoverToInitialPose();
+                        bridge.ResetForNextExperimentBlock();
                     }
                     SetCommandButtonsInteractable();
                     if (statusTxt)
@@ -456,7 +506,7 @@ namespace CORC.Demo
                         SetStatus(Color.green, "BGIN acknowledged!");
                     }
                 }
-                else if (cmd == "AT_A")
+                else if (cmd == "AT_A") // AT_A: M2 is back at A (after TO_A or trial end), we can apply pending mode settings and allow block/trial start.
                 {
                     TryApplyPendingM2Setup();
                     SetCommandButtonsInteractable();
@@ -480,9 +530,11 @@ namespace CORC.Demo
                         SetStatus(Color.green, "Command accepted!");
                     }
                 }
-                else if (cmd == "RWOK")
+                else if (cmd == "RWOK") // RWOK: Acknowledgement for RWST, we can prepare for the next block if we were waiting for block completion.
                 {
                     if (bridge) bridge.NotifyTrialEnd();
+                    bool hasNextBlock = blockControl != null && blockControl.NotifyReturnWaitReady();
+                    if (hasNextBlock && bridge) bridge.ResetForNextExperimentBlock();
                     TryApplyPendingM2Setup();
                     SetCommandButtonsInteractable();
                     if (statusTxt)
@@ -490,16 +542,17 @@ namespace CORC.Demo
                         SetStatus(Color.green, "Returned to WAIT_START (to A).");
                     }
                 }
-                else if (cmd == "TRND")
+                else if (cmd == "TRND") // TRND: Trial End, we can update the UI and prepare for the next trial/block.
                 {
                     if (statusTxt) SetStatus(Color.white, "Trial ended.");
                     if (bridge) bridge.NotifyTrialEnd();
                     SetCommandButtonsInteractable();
                 }
-                else if (cmd == "SESS")
+                else if (cmd == "SESS") // SESS: Emergency stop, we can update the UI and reset the block/trial state.
                 {
                     if (statusTxt) SetStatus(Color.white, "Section ended.");
                     if (bridge) bridge.NotifyTrialEnd();
+                    blockControl?.ResetRoundState();
                     bginReady = false;
                     SetCommandButtonsInteractable();
                 }
