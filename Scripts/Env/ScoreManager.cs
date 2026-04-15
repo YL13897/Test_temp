@@ -98,7 +98,8 @@ public class ScoreManager : MonoBehaviour
         if (sectionBar != null)
         {
             sectionBar.minValue = 0f;
-            sectionBar.maxValue = 9f;
+            // sectionBar.maxValue = 9f;
+            sectionBar.maxValue = 4.5f;
             sectionBar.value = 0f;
         }
 

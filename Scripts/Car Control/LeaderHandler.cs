@@ -16,11 +16,11 @@ public class LeaderHandler : MonoBehaviour
 
     [Header("Auto Steer")]
     [SerializeField] float steerSpeed = 10f; // m/s
-    [SerializeField] float moveDelay = 1.3f; // Unit: second
+    [SerializeField] float moveDelay = 1.0f; // second
     [SerializeField] float arriveToleranceX = 0.05f;
-    [SerializeField] float leftTargetX = -8f;
+    [SerializeField] float leftTargetX = -4f;
     [SerializeField] float centerTargetX = 0f;
-    [SerializeField] float rightTargetX = 8f;
+    [SerializeField] float rightTargetX = 4f;
 
     float leftX;
     float centerX;

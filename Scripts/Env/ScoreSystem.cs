@@ -14,8 +14,8 @@ public class ScoreSystem : MonoBehaviour
     public float penaltyValue = 500f;
 
     [Header("Global Boundary")]
-    public float minX = -9.0f;
-    public float maxX = 9.0f;
+    public float minX = -4.5f;
+    public float maxX = 4.5f;
     public bool enableBoundaryClamp = true;
 
     [Header("Penalty Control")]

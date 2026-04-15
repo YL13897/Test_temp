@@ -2348,8 +2348,8 @@ Transform:
   m_GameObject: {fileID: 481331122}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.05, z: 0}
-  m_LocalScale: {x: 2, y: 2, z: 2}
+  m_LocalPosition: {x: 0, y: 0.55, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 755332526}
@@ -2372,8 +2372,8 @@ GameObject:
   - component: {fileID: 507810788}
   - component: {fileID: 507810790}
   - component: {fileID: 507810793}
-  - component: {fileID: 507810792}
   - component: {fileID: 507810794}
+  - component: {fileID: 507810792}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -2431,7 +2431,7 @@ MonoBehaviour:
   enableCsvLogging: 0
   csvPathOverride: 
   m2: {fileID: 507810787}
-  bridge: {fileID: 0}
+  bridge: {fileID: 507810793}
 --- !u!114 &507810787
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2488,8 +2488,8 @@ MonoBehaviour:
   bridge: {fileID: 507810793}
   marker: {fileID: 481331129}
   markerRb: {fileID: 481331123}
-  unityXMin: -9
-  unityXMax: 9
+  unityXMin: -4.5
+  unityXMax: 4.5
   m2XMin: 0.16
   m2XMax: 0.48
   m2CenterX: 0.32
@@ -2530,8 +2530,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cccd8caa61fce3e4ba01c3c3f78cf36f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ExperimentBlockControl
-  trialsPerBlock: 3
-  leftTrialsPerBlock: 1
   RecoverySeconds: 1
   blockProbabilities:
   - 0.03125
@@ -2543,10 +2541,14 @@ MonoBehaviour:
   - 0.875
   - 0.9375
   - 0.96875
+  leftLfCount: 1
+  rightRfCount: 1
+  leftRfCount: 1
+  rightLfCount: 1
   leader: {fileID: 1812959198}
   trialIndexText: {fileID: 6810793}
   countdownText: {fileID: 1538615091}
-  countdownSeconds: 10
+  countdownSeconds: 5
 --- !u!114 &507810793
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7293,8 +7295,8 @@ Transform:
   m_GameObject: {fileID: 1812959192}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.05, z: 8}
-  m_LocalScale: {x: 2, y: 2, z: 2}
+  m_LocalPosition: {x: 0, y: 0.55, z: 4}
+  m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -7321,9 +7323,9 @@ MonoBehaviour:
   steerSpeed: 10
   moveDelay: 1.3
   arriveToleranceX: 0.05
-  leftTargetX: -8
+  leftTargetX: -4
   centerTargetX: 0
-  rightTargetX: 8
+  rightTargetX: 4
 --- !u!1 &1826413514
 GameObject:
   m_ObjectHideFlags: 0
@@ -10313,7 +10315,7 @@ GameObject:
   m_Component:
   - component: {fileID: 7542146204557448376}
   m_Layer: 9
-  m_Name: ForceField_BGIN
+  m_Name: Section_BGIN
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

@@ -53,8 +53,8 @@ MonoBehaviour:
   trackingScoreRate: 10
   CappedWidthX: 1
   penaltyValue: 500
-  minX: -9
-  maxX: 9
+  minX: -4.5
+  maxX: 4.5
   enableBoundaryClamp: 1
   penaltyCooldown: 1
 --- !u!1 &4666412157668177840
@@ -87,7 +87,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0.7071068, y: 0, z: 0, w: 0.7071068}
   m_LocalPosition: {x: 0, y: 0, z: 5}
-  m_LocalScale: {x: 20, y: 20, z: 2}
+  m_LocalScale: {x: 10, y: 20, z: 2}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 7542146203882420899}
@@ -210,7 +210,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0.7071068, y: 0, z: 0, w: 0.7071068}
   m_LocalPosition: {x: 0, y: 0, z: 16.5}
-  m_LocalScale: {x: 20, y: 7, z: 2}
+  m_LocalScale: {x: 10, y: 7, z: 2}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 7542146203882420899}
@@ -305,6 +305,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ForceFieldPreview
   worldProbPanel: {fileID: 0}
   triggerProbability: 0.3
+  previewDirection: -1
 --- !u!1 &6596224671984602875
 GameObject:
   m_ObjectHideFlags: 0
@@ -335,7 +336,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0.7071068, y: 0, z: 0, w: 0.7071068}
   m_LocalPosition: {x: 0, y: 0, z: 50}
-  m_LocalScale: {x: 20, y: 10, z: 2}
+  m_LocalScale: {x: 10, y: 10, z: 2}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 7542146203882420899}
@@ -463,7 +464,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: 0.7071068, z: -0, w: 0.7071068}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 9, y: 1, z: 2}
+  m_LocalScale: {x: 9, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 7542146203882420899}

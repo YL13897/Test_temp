@@ -69,7 +69,7 @@ namespace CORC.Demo
         public bool enableHotkeys = true;
 
         [Header("M2 to Unity mapping")]
-        public float targetWorldXScale = 5.0f; // Scaling factor to map M2 handle X movement to Unity world X movement.
+        public float targetWorldXScale = 5.0f; // Scaling factor sync/snap mapping between M2 and Unity, considered as the runtime control gain of M2 handle.
         public float worldXCenter = 0.0f; // The world X coordinate that corresponds to the M2 handle center (zero) position. 
         [Tooltip("Unity centerline X that should correspond to M2 point A.")]
         
