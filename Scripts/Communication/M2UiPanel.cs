@@ -49,9 +49,6 @@ namespace CORC.Demo
         private readonly Color startRecActiveColor = new Color(0.25f, 0.70f, 0.25f, 1f);
         private ExperimentBlockControl blockControl;
 
-        // Helper to parse double with fallback
-        // private static bool TryParse(string s, out double v, double fallback = 0) { if (double.TryParse(s, out v)) return true; v = fallback; return false; }
-
 
         // ---------------------------------------------------------------------------------------------
         // ---------------------------------- UI Event Handlers ----------------------------------------

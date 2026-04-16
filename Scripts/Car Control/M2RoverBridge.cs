@@ -640,7 +640,6 @@ namespace CORC.Demo
         {
             currentVx = roverRigidbody != null ? roverRigidbody.linearVelocity.x : 0f;
 
-            float steerDir = Mathf.Sign(handleXRel);
             float steer = velOpenLoopKp * handleXRel;
             if (Mathf.Abs(steer) < 1e-4f) return 0f;
             return Mathf.Clamp(steer, -velSteerClamp, velSteerClamp);
@@ -668,14 +667,7 @@ namespace CORC.Demo
             rover.SetInputRaw(new Vector2(steer, 0f));
         }
 
-        private void PosHriMode(float handleX)
-        {
-            float steer = ComputeSteerPosMode(handleX);
-            ApplyRoverSteer(steer);
-            // SendFeedbackForce(0f, 0f);
-        }
-
-        private void PosPhriMode(float handleX)
+        private void PosMode(float handleX)
         {
             float steer = ComputeSteerPosMode(handleX);
             ApplyRoverSteer(steer);
@@ -690,12 +682,7 @@ namespace CORC.Demo
             // SendFeedbackForce(0f, 0f);
         }
 
-        private void VelHriMode(float handleXRel)
-        {
-            ApplyVelMode(handleXRel);
-        }
-
-        private void VelPhriMode(float handleXRel)
+        private void VelMode(float handleXRel)
         {
             ApplyVelMode(handleXRel);
         }
@@ -814,8 +801,7 @@ namespace CORC.Demo
 
                 if (ctrl == 1) // POS mode
                 {
-                    if (hri == 2) PosPhriMode(handleX);// pHRI + POS mode
-                    else PosHriMode(handleX); // HRI-only + POS mode
+                    PosMode(handleX);
                     return;
                 }
 
@@ -823,8 +809,7 @@ namespace CORC.Demo
                 {
                     ApplyForcedVelParamsIfEnabled(); 
                     float handleXRel = ComputeVelHandleXRel(handleX);
-                    if (hri == 2) VelPhriMode(handleXRel); // pHRI + VEL mode
-                    else VelHriMode(handleXRel); // HRI-only + VEL mode
+                    VelMode(handleXRel);
                     return;
                 }
             }
