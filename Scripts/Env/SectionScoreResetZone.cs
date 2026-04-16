@@ -19,17 +19,17 @@ public class SectionScoreResetZone : MonoBehaviour
     void OnTriggerEnter(Collider other)
     {
         if (triggered) return;
-        if (!other.transform.root.CompareTag("Player")) return;
+        if (!other.transform.root.CompareTag("Player")) return; // Ensure that the collider belongs to the player.
 
         triggered = true;
 
         if (ScoreManager.Instance == null) return;
 
-        if (transform.root.name.StartsWith("Section_BGIN"))
-            return;
+        if (transform.root.name.StartsWith("Section_BGIN")) 
+            return; 
 
-        // Notify the block control that we've entered a new section, so it can handle scoring and block progression logic.
-        ExperimentBlockControl.Instance?.NotifySectionEntered(transform.root.name); 
+        // Notify the block control that we've entered a new trial section, so it can handle scoring and block progression logic.
+        ExperimentBlockControl.Instance?.NotifyTrialEntered(transform.root.name); 
 
         if (!ScoreManager.Instance.HasStartedScoring)
             ScoreManager.Instance.BeginScoring();

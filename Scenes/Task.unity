@@ -2530,7 +2530,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cccd8caa61fce3e4ba01c3c3f78cf36f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ExperimentBlockControl
-  RecoverySeconds: 1
+  RecoverySeconds: 0.8
   blockProbabilities:
   - 0.03125
   - 0.0625
@@ -2541,10 +2541,10 @@ MonoBehaviour:
   - 0.875
   - 0.9375
   - 0.96875
-  leftLfCount: 1
+  leftLfCount: 0
   rightRfCount: 1
-  leftRfCount: 1
-  rightLfCount: 1
+  leftRfCount: 0
+  rightLfCount: 0
   leader: {fileID: 1812959198}
   trialIndexText: {fileID: 6810793}
   countdownText: {fileID: 1538615091}
@@ -7314,7 +7314,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LeaderHandler
   rb: {fileID: 1812959193}
-  leaderRB: {fileID: 1812959193}
   targetForwardSpeed: 50
   isDriving: 0
   isPaused: 0
@@ -10290,7 +10289,8 @@ PrefabInstance:
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
       objectReference: {fileID: 2100000, guid: 6a1143ee683302f4aa628c052723efc1, type: 2}
-    m_RemovedComponents: []
+    m_RemovedComponents:
+    - {fileID: 3613961788385983385, guid: bdb5882bcc45f5448b6a4e2304300ae2, type: 3}
     m_RemovedGameObjects:
     - {fileID: 6092899326964875217, guid: bdb5882bcc45f5448b6a4e2304300ae2, type: 3}
     - {fileID: 2825291637416032422, guid: bdb5882bcc45f5448b6a4e2304300ae2, type: 3}

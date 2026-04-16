@@ -353,6 +353,8 @@ namespace CORC.Demo
                 bridge.StopTrialMotionImmediate();
                 bridge.ResetRoverToInitialPose();
             }
+
+            // AbortCurrentBlock() will pending and refresh the block state, so that after RWST, next START can reenter the block.
             blockControl.AbortCurrentBlock();
             SetCommandButtonsInteractable();
 

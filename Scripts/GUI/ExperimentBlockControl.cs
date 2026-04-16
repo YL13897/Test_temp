@@ -19,7 +19,7 @@ public class ExperimentBlockControl : MonoBehaviour
     public static ExperimentBlockControl Instance { get; private set; }
 
     [Header("Block Config")]
-    [SerializeField] float RecoverySeconds = 1f;
+    [SerializeField] float RecoverySeconds = 0.8f;
     [SerializeField] float[] blockProbabilities =
     {
         1f / 32f,
@@ -50,7 +50,6 @@ public class ExperimentBlockControl : MonoBehaviour
     int currentBlockIndex = -1;// -1: no block prepared, 0..blockProbabilities.Length-1: prepared block index, blockProbabilities.Length: all blocks completed.
     int trialInBlock = 0;
     bool blockRunning = false;
-    bool pendingCompleteTrigger = false;
     float autoPauseAtTime = -1f;// Used for setting addtional recover time before block ends.
                                 // -1: no auto-pause scheduled, >=0: time at which to auto-pause, PositiveInfinity: auto-pause requested but not yet scheduled.
     const float AutoPauseRequested = float.PositiveInfinity;
@@ -77,7 +76,7 @@ public class ExperimentBlockControl : MonoBehaviour
     public bool ShouldAutoPauseNow => autoPauseAtTime >= 0f && autoPauseAtTime != AutoPauseRequested && Time.time >= autoPauseAtTime;
     public bool CountdownActive => nextBlockStartAt >= 0f && Time.time < nextBlockStartAt;
     public float CountdownRemain => CountdownActive ? nextBlockStartAt - Time.time : 0f;
-    public int CurrentDirection => GetCurrentTrialSpec().previewDirection;
+    public int CurrentDirection => GetUpcomingTrialSpec().previewDirection;
     int TrialsPerBlock => Mathf.Max(1,
         Mathf.Max(0, leftLfCount) +
         Mathf.Max(0, rightRfCount) +
@@ -112,7 +111,6 @@ public class ExperimentBlockControl : MonoBehaviour
         currentBlockIndex = 0;
         trialInBlock = 0;
         blockRunning = false;
-        pendingCompleteTrigger = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
         waitingForReturnAck = false;
@@ -126,7 +124,6 @@ public class ExperimentBlockControl : MonoBehaviour
         currentBlockIndex = -1;
         trialInBlock = 0;
         blockRunning = false;
-        pendingCompleteTrigger = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
         waitingForReturnAck = false;
@@ -145,7 +142,6 @@ public class ExperimentBlockControl : MonoBehaviour
 
         trialInBlock = 0;
         blockRunning = false;
-        pendingCompleteTrigger = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
         waitingForReturnAck = false;
@@ -167,7 +163,6 @@ public class ExperimentBlockControl : MonoBehaviour
 
         trialInBlock = 0;
         blockRunning = true;
-        pendingCompleteTrigger = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
         waitingForReturnAck = false;
@@ -175,34 +170,15 @@ public class ExperimentBlockControl : MonoBehaviour
         RefreshUi();
     }
 
-    public void NotifyTrialPreviewEntered()
-    {
-        if (!blockRunning) return;
-        if (autoPauseAtTime >= 0f) return;
-        if (pendingCompleteTrigger) return;
-        if (trialInBlock >= TrialsPerBlock) return;
-
-        trialInBlock++;
-        if (trialInBlock >= TrialsPerBlock)
-            pendingCompleteTrigger = true;
-
-        RefreshUi();
-    }
-
-    // NotifySectionEntered(): To be called by the block when a new section is entered, and ignore the beginning section (Section_BGIN). 
-    public void NotifySectionEntered(string sectionRootName)
+    // NotifyTrialEntered(): To be called when a non-Section_BGIN section is entered.
+    // The section boundary is the single source of truth for trial progression.
+    public void NotifyTrialEntered(string sectionRootName)
     {
         if (!blockRunning) return;
         if (string.IsNullOrEmpty(sectionRootName)) return;
         if (autoPauseAtTime >= 0f) return;
-        if (!pendingCompleteTrigger) return;
 
-        // All trials in the block are completed now.
-        blockRunning = false;
-        pendingCompleteTrigger = false;
-        autoPauseAtTime = Time.time + recoverySecondsClamped;
-        nextBlockStartAt = Time.time + Mathf.Max(0f, countdownSeconds);
-        RefreshUi();
+        StartNextTrial();
     }
 
     // MarkAutoPauseRequested(): To be called when an auto-pause is requested.
@@ -262,12 +238,31 @@ public class ExperimentBlockControl : MonoBehaviour
         BuildCurrentBlockTrials();
         trialInBlock = 0;
         blockRunning = false;
-        pendingCompleteTrigger = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
         waitingForReturnAck = false;
         receivedReturnAck = false;
         leader.SetBlockLaneSequence(BuildLaneSequence());
+        RefreshUi();
+    }
+
+    void StartNextTrial()
+    {
+        // if (trialInBlock >= TrialsPerBlock) return; // Safety check to prevent starting more trials than configured in the block.
+
+        if (trialInBlock >= TrialsPerBlock)
+            CompleteCurrentBlock();
+
+        leader?.TriggerNextScheduledShift();
+        trialInBlock++;
+        RefreshUi();
+    }
+
+    void CompleteCurrentBlock()
+    {
+        blockRunning = false;
+        autoPauseAtTime = Time.time + recoverySecondsClamped;
+        nextBlockStartAt = Time.time + Mathf.Max(0f, countdownSeconds);
         RefreshUi();
     }
 
@@ -306,10 +301,10 @@ public class ExperimentBlockControl : MonoBehaviour
         }
     }
 
-    TrialSpec GetCurrentTrialSpec()
+    TrialSpec GetUpcomingTrialSpec()
     {
-        int IndexInBlock = Mathf.Clamp(Mathf.Max(0, trialInBlock - 1), 0, Mathf.Max(0, TrialsPerBlock - 1));
-        return GetTrialSpecAtBlockIndex(IndexInBlock);
+        int indexInBlock = Mathf.Clamp(trialInBlock, 0, Mathf.Max(0, TrialsPerBlock - 1));
+        return GetTrialSpecAtBlockIndex(indexInBlock);
     }
 
     TrialSpec GetTrialSpecAtBlockIndex(int blockIndex)
@@ -345,7 +340,7 @@ public class ExperimentBlockControl : MonoBehaviour
             }
             else if (CountdownActive)
             {
-                countdownText.text = $"Next block in {Mathf.CeilToInt(CountdownRemain)} s";
+                countdownText.text = $"Relax! Reset to center!\n Next block in {Mathf.CeilToInt(CountdownRemain)} s";
             }
             else if (HasPreparedBlock && !blockRunning && autoPauseAtTime < 0f)
             {

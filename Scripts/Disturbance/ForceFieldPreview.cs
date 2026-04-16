@@ -26,7 +26,6 @@ public class ForceFieldPreview : MonoBehaviour
     void OnTriggerEnter(Collider other)
     {
         if (!other.CompareTag("Player")) return;
-        ExperimentBlockControl.Instance?.NotifyTrialPreviewEntered();
         if (ExperimentBlockControl.Instance != null && ExperimentBlockControl.Instance.HasPreparedBlock)
         {
             triggerProbability = ExperimentBlockControl.Instance.CurrentBlockProbability;
