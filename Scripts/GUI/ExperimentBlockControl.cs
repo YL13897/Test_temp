@@ -4,12 +4,12 @@ using TMPro;
 
 public class ExperimentBlockControl : MonoBehaviour
 {
-    struct TrialSpec
+    struct SectionSpec
     {
         public float leaderTargetX;
         public int previewDirection;
 
-        public TrialSpec(float leaderTargetX, int previewDirection)
+        public SectionSpec(float leaderTargetX, int previewDirection)
         {
             this.leaderTargetX = leaderTargetX;
             this.previewDirection = previewDirection < 0 ? -1 : 1;
@@ -41,14 +41,14 @@ public class ExperimentBlockControl : MonoBehaviour
 
     [Header("Refs")]
     [SerializeField] LeaderHandler leader;
-    [SerializeField] TMP_Text trialIndexText;
+    [SerializeField] TMP_Text sectionIndexText;
     [SerializeField] TMP_Text countdownText;
 
     [Header("UI Timing")]
     [SerializeField] float countdownSeconds = 10f;
 
     int currentBlockIndex = -1;// -1: no block prepared, 0..blockProbabilities.Length-1: prepared block index, blockProbabilities.Length: all blocks completed.
-    int trialInBlock = 0;
+    int sectionInBlock = 0;
     bool blockRunning = false;
     float autoPauseAtTime = -1f;// Used for setting addtional recover time before block ends.
                                 // -1: no auto-pause scheduled, >=0: time at which to auto-pause, PositiveInfinity: auto-pause requested but not yet scheduled.
@@ -57,7 +57,7 @@ public class ExperimentBlockControl : MonoBehaviour
     float nextBlockStartAt = -1f;
     bool waitingForReturnAck = false;
     bool receivedReturnAck = false;
-    readonly List<TrialSpec> currentBlockTrials = new List<TrialSpec>();
+    readonly List<SectionSpec> currentBlockSections = new List<SectionSpec>();
     
 
     // CurrentBlockProbability: returns the probability for the currently prepared block, or 0 if no block is prepared or all blocks are completed. 
@@ -73,11 +73,13 @@ public class ExperimentBlockControl : MonoBehaviour
 
     public bool HasPreparedBlock => currentBlockIndex >= 0 && currentBlockIndex < blockProbabilities.Length;
     public bool IsRoundComplete => currentBlockIndex >= blockProbabilities.Length;
+    public int CurrentBlockNumber => HasPreparedBlock ? currentBlockIndex + 1 : 0;
+    public int CurrentSectionNumber => HasPreparedBlock ? Mathf.Clamp(sectionInBlock, 0, SectionsPerBlock) : 0;
     public bool ShouldAutoPauseNow => autoPauseAtTime >= 0f && autoPauseAtTime != AutoPauseRequested && Time.time >= autoPauseAtTime;
     public bool CountdownActive => nextBlockStartAt >= 0f && Time.time < nextBlockStartAt;
     public float CountdownRemain => CountdownActive ? nextBlockStartAt - Time.time : 0f;
-    public int CurrentDirection => GetUpcomingTrialSpec().previewDirection;
-    int TrialsPerBlock => Mathf.Max(1,
+    public int CurrentDirection => GetUpcomingSectionSpec().previewDirection;
+    int SectionsPerBlock => Mathf.Max(1,
         Mathf.Max(0, leftLfCount) +
         Mathf.Max(0, rightRfCount) +
         Mathf.Max(0, leftRfCount) +
@@ -109,7 +111,7 @@ public class ExperimentBlockControl : MonoBehaviour
     public void PrepareRound()
     {
         currentBlockIndex = 0;
-        trialInBlock = 0;
+        sectionInBlock = 0;
         blockRunning = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
@@ -122,14 +124,14 @@ public class ExperimentBlockControl : MonoBehaviour
     public void ResetRoundState()
     {
         currentBlockIndex = -1;
-        trialInBlock = 0;
+        sectionInBlock = 0;
         blockRunning = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
         waitingForReturnAck = false;
         receivedReturnAck = false;
         leader.ClearBlockLaneSequence();
-        currentBlockTrials.Clear();
+        currentBlockSections.Clear();
         RefreshUi();
     }
 
@@ -140,7 +142,7 @@ public class ExperimentBlockControl : MonoBehaviour
     {
         if (!HasPreparedBlock) return;
 
-        trialInBlock = 0;
+        sectionInBlock = 0;
         blockRunning = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
@@ -161,7 +163,7 @@ public class ExperimentBlockControl : MonoBehaviour
         if (!HasPreparedBlock)
             PrepareRound();
 
-        trialInBlock = 0;
+        sectionInBlock = 0;
         blockRunning = true;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
@@ -170,15 +172,15 @@ public class ExperimentBlockControl : MonoBehaviour
         RefreshUi();
     }
 
-    // NotifyTrialEntered(): To be called when a non-Section_BGIN section is entered.
-    // The section boundary is the single source of truth for trial progression.
-    public void NotifyTrialEntered(string sectionRootName)
+    // NotifySectionEntered(): To be called when a non-Section_BGIN section is entered.
+    // The section boundary is the single source of truth for section progression within a block.
+    public void NotifySectionEntered(string sectionRootName)
     {
         if (!blockRunning) return;
         if (string.IsNullOrEmpty(sectionRootName)) return;
         if (autoPauseAtTime >= 0f) return;
 
-        StartNextTrial();
+        StartNextSection();
     }
 
     // MarkAutoPauseRequested(): To be called when an auto-pause is requested.
@@ -230,13 +232,13 @@ public class ExperimentBlockControl : MonoBehaviour
         return false;
     }
 
-    // PrepareCurrentBlock(): To set up the lane sequence for the currently prepared block based on the configured probabilities and trial counts.
+    // PrepareCurrentBlock(): To set up the lane sequence for the currently prepared block based on the configured probabilities and section counts.
     void PrepareCurrentBlock()
     {
         if (!HasPreparedBlock) return;
 
-        BuildCurrentBlockTrials();
-        trialInBlock = 0;
+        BuildCurrentBlockSections();
+        sectionInBlock = 0;
         blockRunning = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
@@ -246,15 +248,15 @@ public class ExperimentBlockControl : MonoBehaviour
         RefreshUi();
     }
 
-    void StartNextTrial()
+    void StartNextSection()
     {
-        // if (trialInBlock >= TrialsPerBlock) return; // Safety check to prevent starting more trials than configured in the block.
+        // if (sectionInBlock >= SectionsPerBlock) return; // Safety check to prevent starting more sections than configured in the block.
 
-        if (trialInBlock >= TrialsPerBlock)
+        if (sectionInBlock >= SectionsPerBlock)
             CompleteCurrentBlock();
 
         leader?.TriggerNextScheduledShift();
-        trialInBlock++;
+        sectionInBlock++;
         RefreshUi();
     }
 
@@ -267,68 +269,68 @@ public class ExperimentBlockControl : MonoBehaviour
     }
 
     // BuildLaneSequence(): Helper function to construct the lane sequence for the current block.
-    // Returns an array of target X positions for each trial in the block.
+    // Returns an array of target X positions for each section in the block.
     float[] BuildLaneSequence()
     {
-        List<float> sequence = new List<float>(TrialsPerBlock);
-        for (int i = 0; i < TrialsPerBlock; i++)
-            sequence.Add(GetTrialSpecAtBlockIndex(i).leaderTargetX);
+        List<float> sequence = new List<float>(SectionsPerBlock);
+        for (int i = 0; i < SectionsPerBlock; i++)
+            sequence.Add(GetSectionSpecAtBlockIndex(i).leaderTargetX);
 
         return sequence.ToArray();
     }
 
-    void BuildCurrentBlockTrials()
+    void BuildCurrentBlockSections()
     {
-        currentBlockTrials.Clear();
+        currentBlockSections.Clear();
         if (leader == null) return;
 
         for (int i = 0; i < Mathf.Max(0, leftLfCount); i++)
-            currentBlockTrials.Add(new TrialSpec(leader.LeftLaneX, -1));
+            currentBlockSections.Add(new SectionSpec(leader.LeftLaneX, -1));
         for (int i = 0; i < Mathf.Max(0, rightRfCount); i++)
-            currentBlockTrials.Add(new TrialSpec(leader.RightLaneX, 1));
+            currentBlockSections.Add(new SectionSpec(leader.RightLaneX, 1));
         for (int i = 0; i < Mathf.Max(0, leftRfCount); i++)
-            currentBlockTrials.Add(new TrialSpec(leader.LeftLaneX, 1));
+            currentBlockSections.Add(new SectionSpec(leader.LeftLaneX, 1));
         for (int i = 0; i < Mathf.Max(0, rightLfCount); i++)
-            currentBlockTrials.Add(new TrialSpec(leader.RightLaneX, -1));
+            currentBlockSections.Add(new SectionSpec(leader.RightLaneX, -1));
 
-        if (currentBlockTrials.Count == 0)
-            currentBlockTrials.Add(new TrialSpec(leader.LeftLaneX, -1));
+        if (currentBlockSections.Count == 0)
+            currentBlockSections.Add(new SectionSpec(leader.LeftLaneX, -1));
 
-        for (int i = currentBlockTrials.Count - 1; i > 0; i--)
+        for (int i = currentBlockSections.Count - 1; i > 0; i--)
         {
             int j = Random.Range(0, i + 1);
-            (currentBlockTrials[i], currentBlockTrials[j]) = (currentBlockTrials[j], currentBlockTrials[i]);
+            (currentBlockSections[i], currentBlockSections[j]) = (currentBlockSections[j], currentBlockSections[i]);
         }
     }
 
-    TrialSpec GetUpcomingTrialSpec()
+    SectionSpec GetUpcomingSectionSpec()
     {
-        int indexInBlock = Mathf.Clamp(trialInBlock, 0, Mathf.Max(0, TrialsPerBlock - 1));
-        return GetTrialSpecAtBlockIndex(indexInBlock);
+        int indexInBlock = Mathf.Clamp(sectionInBlock, 0, Mathf.Max(0, SectionsPerBlock - 1));
+        return GetSectionSpecAtBlockIndex(indexInBlock);
     }
 
-    TrialSpec GetTrialSpecAtBlockIndex(int blockIndex)
+    SectionSpec GetSectionSpecAtBlockIndex(int blockIndex)
     {
-        if (currentBlockTrials.Count == 0)
-            return new TrialSpec(leader != null ? leader.LeftLaneX : 0f, -1);
+        if (currentBlockSections.Count == 0)
+            return new SectionSpec(leader != null ? leader.LeftLaneX : 0f, -1);
 
-        int clampedIndex = Mathf.Clamp(blockIndex, 0, currentBlockTrials.Count - 1);
-        return currentBlockTrials[clampedIndex];
+        int clampedIndex = Mathf.Clamp(blockIndex, 0, currentBlockSections.Count - 1);
+        return currentBlockSections[clampedIndex];
     }
 
 
     void RefreshUi()
     {
-        if (trialIndexText != null)
+        if (sectionIndexText != null)
         {
             if (!HasPreparedBlock || IsRoundComplete)
             {
-                trialIndexText.text = "Trial: --";
+                sectionIndexText.text = "Section: --";
             }
             else
             {
-                int displayTrial = Mathf.Clamp(trialInBlock, 0, Mathf.Max(1, TrialsPerBlock));
-                trialIndexText.text = $"Trial: {displayTrial}/{TrialsPerBlock}";
+                int displaySection = Mathf.Clamp(sectionInBlock, 0, Mathf.Max(1, SectionsPerBlock));
+                sectionIndexText.text = $"Section: {displaySection}/{SectionsPerBlock}";
             }
         }
 

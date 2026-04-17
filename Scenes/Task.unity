@@ -2543,7 +2543,7 @@ MonoBehaviour:
   - 0.96875
   leftLfCount: 0
   rightRfCount: 1
-  leftRfCount: 0
+  leftRfCount: 1
   rightLfCount: 0
   leader: {fileID: 1812959198}
   trialIndexText: {fileID: 6810793}
@@ -2588,7 +2588,6 @@ MonoBehaviour:
   worldXCenter: 0
   unityCenterX: 0
   autoSnapOnM2Reconnect: 1
-  sendRateHz: 80
   delsysEnable: 1
   emgRecordFlag: 1
   emgPathOverride: 
@@ -8295,9 +8294,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::EMGFilter
   channelCount: 16
   sampleRateHz: 1111.1111
-  highPassHz: 15
-  lowPassHz: 400
-  envelopeHz: 5
+  highPassHz: 20
+  lowPassHz: 450
+  envelopeHz: 15
   historySamples: 512
 --- !u!120 &1910340488
 LineRenderer:

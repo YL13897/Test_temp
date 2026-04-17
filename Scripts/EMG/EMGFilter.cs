@@ -9,9 +9,9 @@ public class EMGFilter : MonoBehaviour
     private const float ButterworthQ = 0.70710678f; // Butterworth choice: 1 / sqrt(2) 
     private const int DefaultChannelCount = 16;
     private const float DefaultSampleRateHz = 1111.1111f; // 1 / 0.0009
-    private const float DefaultHighPassHz = 15f;
-    private const float DefaultLowPassHz = 400f;
-    private const float DefaultEnvelopeHz = 10f;
+    private const float DefaultHighPassHz = 20f;
+    private const float DefaultLowPassHz = 450f;
+    private const float DefaultEnvelopeHz = 15f;
     private const int DefaultHistorySamples = 512;
 
     [Header("sEMG Filter")]

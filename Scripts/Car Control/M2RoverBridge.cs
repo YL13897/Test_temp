@@ -36,7 +36,7 @@ namespace CORC.Demo
 
         [Header("Unity Mode")]
         public UnityDriveMode unityMode = UnityDriveMode.Mode1_Keyboard;
-        bool trialActive = false;
+        bool blockActive = false;
         [Tooltip("1=V1_HRI, 2=V2_PHRI")]
         public int hriModeCode = 2;
         [Tooltip("1=V1_POS, 2=V2_VEL")]
@@ -74,7 +74,7 @@ namespace CORC.Demo
         public float unityCenterX = 0.0f; // Unity X coordinate that corresponds to M2 handle point A (the center reference).
         public bool autoSnapOnM2Reconnect = true; // Whether to automatically snap rover to M2-mapped position when M2 reconnects, to prevent jump forces due to position mismatch.
 
-        public float sendRateHz = 25.0f; // Rate limit for sending feedback commands to M2 (Hz)
+        // public float CmdSendRateHz = 25.0f; // Rate limit for sending feedback commands to M2 (Hz), used for FCR2 command.
         
         bool enableKeyboardInMode1 = true;
 
@@ -84,7 +84,7 @@ namespace CORC.Demo
         private bool isDriving = false;
         private bool isPaused = false;
 
-        private float nextFeedbackSendTime = 0.0f;
+        // private float nextFeedbackSendTime = 0.0f;
         private float nextVelDebugTime = 0.0f;
         private bool lastM2Connected = false; // Track M2 connection status to detect reconnects for auto-snapping
         private bool hasSentDisturbanceState = false; // To track whether we've sent the disturbance state to M2, to avoid redundant commands
@@ -92,27 +92,31 @@ namespace CORC.Demo
         private Vector3 roverInitialPosition; // To store the initial pose of the rover for resetting, captured in Awake()
         
         // Flag indicating whether the reference point has been initialized.
-        // This is used to ensure that we have a valid reference for computing relative handle movements and corresponding rover target positions, 
-        // especially after mode switches or trial starts.
+        // This is used to ensure that we have a valid reference for computing relative handle movements and corresponding rover target positions,
+        // especially after mode switches or block starts.
         private bool syncRefReady = false;
 
-        // The M2 handle X position recorded at the start of the trial (or after mode switch), used as the zero point for relative movement.
+        // The M2 handle X position recorded at the start of the block (or after mode switch), used as the zero point for relative movement.
         private float handleXRef = 0.0f; 
-        // The rover X position recorded at the start of the trial (or after mode switch), used as the reference point for computing target X based on handle movement.
+        // The rover X position recorded at the start of the block (or after mode switch), used as the reference point for computing target X based on handle movement.
         private float roverXRef = 0.0f;
 
         // ----------------------------------------------------------------------------------------------------------------------
         
         // Delsys EMG background data collection
+        [Header("EMG Settings")]
         [SerializeField] private bool delsysEnable;
         [SerializeField] private bool emgRecordFlag = true;
         [SerializeField] private string emgPathOverride = "";
+        [SerializeField] private bool m2LogRecordFlag = true;
+        [SerializeField] private string m2LogPathOverride = "";
         [SerializeField] private EMGFilter.EmgSignalView emgSignalMode = EMGFilter.EmgSignalView.Envelope;
         [SerializeField] private float emgScoreDownsampleHz = 100f;
         [SerializeField] private EMGFilter emgFilter;
         private DelsysEMG delsysEMG = new DelsysEMG();
-        [SerializeField] private int emgTrialIndex = 0; 
+        [SerializeField] private int emgRecordCount = 0; // To keep track of EMG recordings within the current block.
         private bool emgIsRecording = false;
+        private bool m2LogIsRecording = false;
 
         [Header("EMG Channel Preview")]
         [SerializeField] private int emgPreviewMaxChannels = 8;
@@ -125,6 +129,7 @@ namespace CORC.Demo
         private bool emgShutdown = false;
         private double nextEmgUpdateTime = 0.0; // To control the update rate of EMG preview in the UI, we track the next allowed update time based on the specified preview Hz rate.
         private string emgSessionFilePath;
+        private string m2LogSessionFilePath;
 
         private void ApplyEmgRuntimeSettings()
         {
@@ -153,27 +158,57 @@ namespace CORC.Demo
             return emgSessionFilePath;
         }
 
+        private string ConfigM2LogFilePath()
+        {
+            if (!string.IsNullOrEmpty(m2LogSessionFilePath))
+                return m2LogSessionFilePath;
+
+            if (!string.IsNullOrWhiteSpace(m2LogPathOverride))
+            {
+                m2LogSessionFilePath = m2LogPathOverride;
+                string overrideDir = Path.GetDirectoryName(m2LogSessionFilePath);
+                if (!string.IsNullOrEmpty(overrideDir))
+                    Directory.CreateDirectory(overrideDir);
+                return m2LogSessionFilePath;
+            }
+
+            string logDir = @"D:\yixianglin\Desktop\PHRI_Data";
+            Directory.CreateDirectory(logDir);
+            string fileName = $"M2Rover_Log_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+            m2LogSessionFilePath = Path.Combine(logDir, fileName);
+            return m2LogSessionFilePath;
+        }
+
         public bool IsEmgReady()
         {
             return delsysEnable && delsysEMG.IsConnected() && delsysEMG.IsRunning();
         }
 
+        public bool IsM2LogReady()
+        {
+            return m2 != null && m2.IsInitialised() && m2.Client != null && m2.Client.IsConnected();
+        }
+
         public bool EmgRecordFlag => emgRecordFlag;
         public bool EmgIsRecording => emgIsRecording;
+        public bool M2LogRecordFlag => m2LogRecordFlag;
+        public bool M2LogIsRecording => m2LogIsRecording;
+        public bool CanStartAnyRecording => (emgRecordFlag && IsEmgReady() && !emgIsRecording) || (m2LogRecordFlag && IsM2LogReady() && !m2LogIsRecording);
+        public bool AnyRecordingActive => emgIsRecording || m2LogIsRecording;
         public int[] GetActiveEmgChannels() => delsysEMG.GetChannelsActiveSensor();
 
-        private bool TryStartRecording()
+        private bool TryStartEmgRecording()
         {
             if (!emgRecordFlag || !IsEmgReady() || emgIsRecording) return false;
 
             string emgPath = ConfigEMGFilePath();
             delsysEMG.StartRecording(emgPath, Time.timeAsDouble);
             emgIsRecording = true;
-            emgTrialIndex++;
+            emgRecordCount++;
             return true;
         }
 
-        private bool TryStopRecording()
+        private bool TryStopEmgRecording()
         {
             if (!emgIsRecording) return false;
 
@@ -184,14 +219,43 @@ namespace CORC.Demo
             return true;
         }
 
-        public bool StartEmgRecordingManual()
+        private bool TryStartM2LogRecording()
         {
-            return TryStartRecording();
+            if (!m2LogRecordFlag || !IsM2LogReady() || m2LogIsRecording) return false;
+
+            string logPath = ConfigM2LogFilePath();
+            m2.SetLoggingFile(logPath);
+            if (!m2.SetLogging(true)) return false;
+
+            m2LogIsRecording = true;
+            return true;
         }
 
-        public bool StopEmgRecordingManual()
+        private bool TryStopM2LogRecording()
         {
-            return TryStopRecording();
+            if (!m2LogIsRecording) return false;
+
+            if (m2 != null)
+                m2.SetLogging(false);
+
+            m2LogIsRecording = false;
+            return true;
+        }
+
+        public bool StartAuxRecordingManual()
+        {
+            bool changed = false;
+            if (TryStartEmgRecording()) changed = true;
+            if (TryStartM2LogRecording()) changed = true;
+            return changed;
+        }
+
+        public bool StopAuxRecordingManual()
+        {
+            bool changed = false;
+            if (TryStopEmgRecording()) changed = true;
+            if (TryStopM2LogRecording()) changed = true;
+            return changed;
         }
 
         private void ShutdownEMG()
@@ -199,9 +263,8 @@ namespace CORC.Demo
             if (emgShutdown) return;
             emgShutdown = true;
 
+            try { StopAuxRecordingManual(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG/M2 log stop during shutdown failed: {ex.Message}"); }
             if (!delsysEnable) return;
-
-            try { TryStopRecording(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG stop recording during shutdown failed: {ex.Message}"); }
             try { if (delsysEMG.IsRunning()) delsysEMG.StopAcquisition(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG stop acquisition during shutdown failed: {ex.Message}"); }
             try { if (delsysEMG.IsConnected()) delsysEMG.Close(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG close during shutdown failed: {ex.Message}"); }
         }
@@ -329,18 +392,18 @@ namespace CORC.Demo
         // ----------------------------------------------------------------------------------------------------------------------
         // --- Public methods to be called by UI or other components ---
 
-        // Switch between keyboard control and M2 control modes. 
-        // When switching from M2 to keyboard, also send SESS command to end M2 session and stop the trial.
+        // Switch between keyboard control and M2 control modes.
+        // When switching from M2 to keyboard, also send SESS command to end M2 session and stop the current block.
         public void SetUnityMode(int mode)
         {
             UnityDriveMode targetMode = mode == 2 ? UnityDriveMode.Mode2_M2 : UnityDriveMode.Mode1_Keyboard;
 
-            // If switching from M2 to keyboard mode, end the M2 session and trial to ensure a clean transition.
+            // If switching from M2 to keyboard mode, end the M2 session and block to ensure a clean transition.
             if (unityMode == UnityDriveMode.Mode2_M2 && targetMode == UnityDriveMode.Mode1_Keyboard)
             {
                 if (m2 != null && m2.IsInitialised() && m2.Client != null && m2.Client.IsConnected())
                     m2.SendCmd("SESS");
-                NotifyTrialEnd();
+                NotifyBlockEnd();
             }
 
             unityMode = targetMode;
@@ -348,7 +411,7 @@ namespace CORC.Demo
             // Keyboard mode enabled, reset states to prepare for keyboard control.
             if (unityMode == UnityDriveMode.Mode1_Keyboard)
             {   
-                trialActive = false;
+                blockActive = false;
                 enableKeyboardInMode1 = true;
                 isPaused = false;
                 isDriving = false;
@@ -359,7 +422,7 @@ namespace CORC.Demo
             // M2 control mode enabled, reset states to prepare for M2 control.
             else
             {
-                trialActive = false;
+                blockActive = false;
                 enableKeyboardInMode1 = false;
                 syncRefReady = false;
                 worldFollower?.ResetBias();
@@ -376,28 +439,28 @@ namespace CORC.Demo
             if (ctrlChanged) syncRefReady = false;
         }
 
-        // This should be called when M2 sends the BGIN command, indicating the trial starts
-        public void NotifyTrialBegin()
+        // This should be called when Unity receives the block-begin event from the M2 flow.
+        public void NotifyBlockBegin()
         {
             if (unityMode == UnityDriveMode.Mode2_M2)
             {
-                trialActive = true;
+                blockActive = true;
                 syncRefReady = false; 
                 if (!isPaused) isDriving = true;
                 worldFollower?.ResetBias();
 
-                TryStartRecording();
+                StartAuxRecordingManual();
 
                 if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(false);
             }
         }
 
-        // This should be called when the trial ends
-        public void NotifyTrialEnd()
+        // This should be called when the current block ends.
+        public void NotifyBlockEnd()
         {
-            TryStopRecording();
+            StopAuxRecordingManual();
 
-            trialActive = false;
+            blockActive = false;
             syncRefReady = false;
             if (unityMode == UnityDriveMode.Mode2_M2 && isDriving) isDriving = false;
             worldFollower?.ResetBias();
@@ -406,7 +469,7 @@ namespace CORC.Demo
             if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(true);
         }
 
-        public void StopTrialMotionImmediate()
+        public void StopBlockMotionImmediate()
         {
             isDriving = false;
             ApplyRoverSteer(0f);
@@ -415,7 +478,7 @@ namespace CORC.Demo
             if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(true);
         }
 
-        // Reset the rover to its initial pose, and clear velocities. This can be called on trial start or when needed.
+        // Reset the rover to its initial pose, and clear velocities. This can be called on block start or when needed.
         public void ResetRoverToInitialPose()
         {
             if (roverTransform == null) return;
@@ -435,7 +498,7 @@ namespace CORC.Demo
         // Reset Unity-side runtime state without reloading scene or disconnecting M2.
         public void SoftResetUnityStateKeepM2Connection()
         {
-            trialActive = false;
+            blockActive = false;
             syncRefReady = false;
             hasSentDisturbanceState = false;
             lastDisturbanceState = false;
@@ -474,12 +537,13 @@ namespace CORC.Demo
 
         public void ResetForNextExperimentBlock()
         {
-            trialActive = false;
+            blockActive = false;
             syncRefReady = false;
             hasSentDisturbanceState = false;
             lastDisturbanceState = false;
             isPaused = false;
             isDriving = false;
+            emgRecordCount = 0;
 
             ResetRoverToInitialPose();
             ApplyRoverSteer(0f);
@@ -593,35 +657,37 @@ namespace CORC.Demo
 
         // =======================================================================================
         // --- M2 feedback logic ---
-        // Check feedback send timer and send feedback if it's time. This helps to limit the feedback send rate to M2.
-        private bool SendFeedbackTimer()
-        {
-            float now = Time.time;
-            if (now < nextFeedbackSendTime) return false;
-
-            nextFeedbackSendTime = now + 1.0f / sendRateHz;
-            return true;
-        }
 
 
+    // ----------------------- For testing ----------------------------
 
-    // --------------------- For testing ------------------------
+    // Check feedback send timer and send feedback if it's time. This helps to limit the feedback send rate to M2.
+        // private bool SendFeedbackTimer()
+        // {
+        //     float now = Time.time;
+        //     if (now < nextFeedbackSendTime) return false;
+
+        //     nextFeedbackSendTime = now + 1.0f / CmdSendRateHz;
+        //     return true;
+        // }
+
     // Send the computed feedback force to M2 using the FRC2 command (No needed currently, just keep it for later testing).
         // private void SendFeedbackForce(float fx, float fy, bool rateLimited = true)
         // {
         //     if (rateLimited && !SendFeedbackTimer()) return;
-        //     if (!trialActive) return;
+        //     if (!blockActive) return;
         //     if (m2 == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return;
         //     m2.SendCmd("FRC2", new double[] { fx, fy }); // M2 set all to zeros, no need to send.
         // }
-    // ---------------------------------------------------------
+
+    // ----------------------------------------------------------------
 
 
 
         // Overload for sending zero force without parameters.
         private void TrySendDisturbanceStateToM2()
         {
-            if (!trialActive) return;
+            if (!blockActive) return;
             if (m2 == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return;
 
             // Use the same Unity disturbance source u(t) for both local simulation and M2 signaling.
@@ -654,7 +720,7 @@ namespace CORC.Demo
         // Compute the handle X offset relative to the reference, applying deadzone.
         private float ComputeVelHandleXRel(float handleX)
         {
-            // Use trial-start center when ready to avoid fixed-center mismatch.
+            // Use block-start center when ready to avoid fixed-center mismatch.
             float velCenterX = syncRefReady ? handleXRef : m2CenterX;
             float handleXRel = handleX - velCenterX;
             if (Mathf.Abs(handleXRel) < velHandleXDeadZone) handleXRel = 0f;
@@ -749,7 +815,7 @@ namespace CORC.Demo
             }
             lastM2Connected = connectedNow;
 
-            if (unityMode == UnityDriveMode.Mode2_M2 && trialActive)
+            if (unityMode == UnityDriveMode.Mode2_M2 && blockActive)
                 TrySendDisturbanceStateToM2();
 
             if (enableHotkeys)
@@ -761,7 +827,7 @@ namespace CORC.Demo
                     Debug.LogWarning("Hotkey T detected");
                     isPaused = false;
                     isDriving = true;
-                    // if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(!trialActive);
+                    // if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(!blockActive);
                 }
                 if (Input.GetKeyDown(KeyCode.T) && ctrl)
                 {
@@ -786,7 +852,7 @@ namespace CORC.Demo
             leader.SetDriving(isDriving && !isPaused);
 
             if (ScoreManager.Instance != null)
-                ScoreManager.Instance.SetScorePaused(isPaused || (unityMode == UnityDriveMode.Mode2_M2 && !trialActive));
+                ScoreManager.Instance.SetScorePaused(isPaused || (unityMode == UnityDriveMode.Mode2_M2 && !blockActive));
 
             UpdateEmgScorePreview();
 
@@ -804,15 +870,15 @@ namespace CORC.Demo
             }
 
             // Can't get handle X, can't proceed with M2 control
-            else if (!TryGetM2HandleX(out float handleX) && trialActive)
+            else if (!TryGetM2HandleX(out float handleX) && blockActive)
             {
                 // SendFeedbackForce(0f, 0f);
                 Debug.LogWarning("[M2RoverBridge] Unable to read M2 handle X position. Check M2 connection and state.");
                 return;
             }
 
-            // M2 control mode but trial not active, ensure rover is not moving and send zero feedback.
-            else if (!trialActive)
+            // M2 control mode but block not active, ensure rover is not moving and send zero feedback.
+            else if (!blockActive)
             {
                 ApplyRoverSteer(0f);
                 return;

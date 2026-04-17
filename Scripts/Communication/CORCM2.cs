@@ -37,5 +37,10 @@ namespace CORC
                 Initialised = false;
             }
         }
+
+        protected override string BuildLoggingHeader()
+        {
+            return "t,X,Y,dX,dY,interaction_fx,interaction_fy,block_index,section_index";
+        }
     }
 }

@@ -40,7 +40,7 @@ namespace CORC.Demo
         private IM2Proxy proxy;
         private const string SetHriCmd = "S_MD";
         private const string SetCtrlCmd = "S_CT";
-        private bool bginReady = false; // Indicates BGOK received after BGIN, i.e., M2 is ready for trial start and mode application
+        private bool bginReady = false; // Indicates BGOK received after BGIN, i.e., M2 is ready for block start and mode application
         private bool pendingHriApply = false;  // Indicates pending HRI mode setting (S_MD)
         private bool pendingCtrlApply = false; // Indicates pending CTRL mode setting (S_CT)
         private int pendingHri = 2;
@@ -86,10 +86,10 @@ namespace CORC.Demo
             
         }
 
-        // Update recording buttons interactable state based on bridge status
+        // Update recording buttons interactable state based on EMG/M2-log recording status.
         private void RecordBtnInteract()
         {
-            bool canStart = bridge != null && bridge.EmgRecordFlag && bridge.IsEmgReady() && !bridge.EmgIsRecording;
+            bool canStart = bridge != null && bridge.CanStartAnyRecording;
 
             if (startRecordingBtn)
             {
@@ -98,12 +98,12 @@ namespace CORC.Demo
                 if (startRecordingBtn.targetGraphic != null)
                 {
                     startRecordingBtn.targetGraphic.color =
-                        bridge != null && bridge.EmgIsRecording ? startRecActiveColor : startRecIdleColor;
+                        bridge != null && bridge.AnyRecordingActive ? startRecActiveColor : startRecIdleColor;
                 }
             }
 
             if (stopRecordingBtn)
-                stopRecordingBtn.interactable = bridge != null && bridge.EmgIsRecording;
+                stopRecordingBtn.interactable = bridge != null && bridge.AnyRecordingActive;
         }
 
         //  Set status text with color
@@ -163,7 +163,7 @@ namespace CORC.Demo
                 if (unityMode == 1 && bridge.unityMode == M2RoverBridge.UnityDriveMode.Mode2_M2)
                 {
                     if (proxy != null && proxy.IsReady) proxy.SendCmd("SESS");
-                    bridge.NotifyTrialEnd();
+                    bridge.NotifyBlockEnd();
                 }
 
                 bridge.SetUnityMode(unityMode);
@@ -297,9 +297,9 @@ namespace CORC.Demo
             if (blockControl == null)
                 return false;
 
-            proxy.SendCmd("RWST"); // RWST: Return to WAIT_START, which ends the current trial/block in M2 logic.
+            proxy.SendCmd("RWST"); // RWST: Return to WAIT_START, which ends the current block in Unity-side logic.
             if (bridge)
-                bridge.StopTrialMotionImmediate();
+                bridge.StopBlockMotionImmediate();
 
             blockControl.MarkAutoPauseRequested();
             SetCommandButtonsInteractable();
@@ -323,7 +323,7 @@ namespace CORC.Demo
                 return;
             }
 
-            proxy.SendCmd("TO_A"); // TO_A: Return to A, which considered as the standby state before starting the trial in M2 logic.
+            proxy.SendCmd("TO_A"); // TO_A: Return to A, which is the standby state before starting the next block in Unity-side logic.
             SetCommandButtonsInteractable();
             if (statusTxt)
             {
@@ -345,10 +345,10 @@ namespace CORC.Demo
                 return;
             }
 
-            proxy.SendCmd("RWST"); // RWST: Return to WAIT_START, which ends the current trial/block in M2 logic.
+            proxy.SendCmd("RWST"); // RWST: Return to WAIT_START, which ends the current block in Unity-side logic.
             if (bridge)
             {
-                bridge.StopTrialMotionImmediate();
+                bridge.StopBlockMotionImmediate();
                 bridge.ResetRoverToInitialPose();
             }
 
@@ -371,14 +371,13 @@ namespace CORC.Demo
                 return;
             }
 
-            proxy.SendCmd("SESS"); // SESS: the emergency stop command that also ends the current block in M2 logic.
-                                   // Different from RWST, SESS is for emergency stop and will reset the block/trial state, 
-                                   // while RWST is for normal block completion and will prepare for the next trial/block.
-                                   // After SESS, user needs to press BGIN again before starting a new trial, 
-                                   // while after RWST, user can directly start the next trial.
+            proxy.SendCmd("SESS"); // SESS: emergency stop that also ends the current block.
+                                   // Different from RWST, SESS resets the block/round state,
+                                   // while RWST is the normal block-completion path.
+                                   // After SESS, user needs to press BGIN again before starting the next block.
             if (bridge)
             {
-                bridge.NotifyTrialEnd();
+                bridge.NotifyBlockEnd();
                 bridge.SoftResetUnityStateKeepM2Connection();
             }
             if (statusTxt)
@@ -395,7 +394,10 @@ namespace CORC.Demo
             if (startRecordingBtn)
                 startRecordingBtn.interactable = false; // block double click while handling click
 
-            bridge.StartEmgRecordingManual();
+            m2?.SetCsvLogContext(
+                blockControl.CurrentBlockNumber,
+                blockControl.CurrentSectionNumber);
+            bridge.StartAuxRecordingManual();
             RecordBtnInteract();
         }
 
@@ -403,7 +405,7 @@ namespace CORC.Demo
         {
             if (bridge == null) return;
 
-            bridge.StopEmgRecordingManual();
+            bridge.StopAuxRecordingManual();
             RecordBtnInteract();
         }
 
@@ -456,6 +458,9 @@ namespace CORC.Demo
 
             TryApplyPendingM2Setup();
             SetCommandButtonsInteractable();
+            m2?.SetCsvLogContext(
+                blockControl.CurrentBlockNumber,
+                blockControl.CurrentSectionNumber);
 
             if (blockControl != null && blockControl.ShouldAutoPauseNow)
                 PauseOnBlockCompletion();
@@ -484,11 +489,11 @@ namespace CORC.Demo
                 var p = c.parameters ?? Array.Empty<double>();
                 Debug.Log($"[UI Received] {cmd} ({p.Length} params)");
 
-                if (cmd == "TRBG") // TRBG: Trial/Block Begin, we can update the UI and notify block control/bridge to start the trial.
+                if (cmd == "TRBG") // TRBG: block begin in Unity-side naming.
                 {
-                    if (statusTxt) SetStatus(Color.white, "Trial in progress...");
+                    if (statusTxt) SetStatus(Color.white, "Block in progress...");
                     blockControl?.NotifyBlockStarted();
-                    if (bridge) bridge.NotifyTrialBegin();
+                    if (bridge) bridge.NotifyBlockBegin();
                     SetCommandButtonsInteractable();
                 }
                 else if (cmd == "BGOK") // BGOK: M2 is ready at A after BGIN, and we can apply pending mode settings and allow block start.
@@ -497,7 +502,7 @@ namespace CORC.Demo
                     blockControl?.PrepareRound();
                     if (bridge)
                     {
-                        bridge.NotifyTrialEnd();
+                        bridge.NotifyBlockEnd();
                         bridge.ResetForNextExperimentBlock();
                     }
                     SetCommandButtonsInteractable();
@@ -506,7 +511,7 @@ namespace CORC.Demo
                         SetStatus(Color.green, "BGIN acknowledged!");
                     }
                 }
-                else if (cmd == "AT_A") // AT_A: M2 is back at A (after TO_A or trial end), we can apply pending mode settings and allow block/trial start.
+                else if (cmd == "AT_A") // AT_A: M2 is back at A (after TO_A or block end), we can apply pending mode settings and allow block start.
                 {
                     TryApplyPendingM2Setup();
                     SetCommandButtonsInteractable();
@@ -532,7 +537,7 @@ namespace CORC.Demo
                 }
                 else if (cmd == "RWOK") // RWOK: Acknowledgement for RWST, we can prepare for the next block if we were waiting for block completion.
                 {
-                    if (bridge) bridge.NotifyTrialEnd();
+                    if (bridge) bridge.NotifyBlockEnd();
                     bool hasNextBlock = blockControl != null && blockControl.NotifyReturnWaitReady();
                     if (hasNextBlock && bridge) bridge.ResetForNextExperimentBlock();
                     TryApplyPendingM2Setup();
@@ -542,16 +547,16 @@ namespace CORC.Demo
                         SetStatus(Color.green, "Returned to WAIT_START (to A).");
                     }
                 }
-                else if (cmd == "TRND") // TRND: Trial End, we can update the UI and prepare for the next trial/block.
+                else if (cmd == "TRND") // TRND: block end in Unity-side naming.
                 {
-                    if (statusTxt) SetStatus(Color.white, "Trial ended.");
-                    if (bridge) bridge.NotifyTrialEnd();
+                    if (statusTxt) SetStatus(Color.white, "Block ended.");
+                    if (bridge) bridge.NotifyBlockEnd();
                     SetCommandButtonsInteractable();
                 }
-                else if (cmd == "SESS") // SESS: Emergency stop, we can update the UI and reset the block/trial state.
+                else if (cmd == "SESS") // SESS: Emergency stop, we can update the UI and reset the block/round state.
                 {
-                    if (statusTxt) SetStatus(Color.white, "Section ended.");
-                    if (bridge) bridge.NotifyTrialEnd();
+                    if (statusTxt) SetStatus(Color.white, "Block ended.");
+                    if (bridge) bridge.NotifyBlockEnd();
                     blockControl?.ResetRoundState();
                     bginReady = false;
                     SetCommandButtonsInteractable();

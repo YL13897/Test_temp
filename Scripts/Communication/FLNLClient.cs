@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Text;
 
 // This file defines the FLNLClient class, a low-level communication library for CORC allowing to exchange double values and commands (4 characters) with double values parameters.
 namespace CORC
@@ -44,6 +45,8 @@ namespace CORC
         private bool Connected = false;
         private bool Logging = false;
         public StreamWriter LogFileStream;
+        private int csvLogBlockIndex = 0;
+        private int csvLogSectionIndex = 0;
 
 
         public FLNLClient()
@@ -130,6 +133,12 @@ namespace CORC
                 LogFileStream?.Dispose();
             }
             return Logging;
+        }
+
+        public void SetCsvLogContext(int blockIndex, int sectionIndex)
+        {
+            Interlocked.Exchange(ref csvLogBlockIndex, blockIndex);
+            Interlocked.Exchange(ref csvLogSectionIndex, sectionIndex);
         }
 
         private void MarkDisconnected(string context, Exception ex = null)
@@ -350,9 +359,13 @@ namespace CORC
                             IsValues = true;
                             if (Logging)
                             {
-                                for (int i = 0; i < nbValuesToReceive - 1; i++)
-                                    LogFileStream.Write((float)ReceivedValues[i] + ",");
-                                LogFileStream.Write((float)ReceivedValues[nbValuesToReceive - 1] + "\n");
+                                var line = new StringBuilder();
+                                line.Append((float)ReceivedValues[0]);
+                                for (int i = 1; i < nbValuesToReceive; i++)
+                                    line.Append(',').Append((float)ReceivedValues[i]);
+                                line.Append(',').Append(Interlocked.CompareExchange(ref csvLogBlockIndex, 0, 0));
+                                line.Append(',').Append(Interlocked.CompareExchange(ref csvLogSectionIndex, 0, 0));
+                                LogFileStream.WriteLine(line.ToString());
                             }
                         }
                         else if (bytes[0] == InitCmdCode)
