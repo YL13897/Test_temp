@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// Real-time sEMG pre-processing component.
+// EMGFilter: Real-time sEMG pre-processing component.
 // Pipeline: 4th-order band-pass (two cascaded high-pass + two cascaded low-pass stages),
 // full-wave rectification, then low-pass envelope extraction.
 // The component also stores a rolling history buffer so display code can render scrolling traces without touching the acquisition path.
@@ -121,16 +121,28 @@ public class EMGFilter : MonoBehaviour
         }
     }
 
-    // ProcessFrame(): the main entry point for processing a block of EMG samples.
-    public void ProcessFrame(float[] rawSamples, float[] filteredOut, float[] rectifiedOut)
+    // ProcessFrame(): main entry point for processing a new frame of raw EMG samples. Applies the filter pipeline and updates the history buffers.
+    public void ProcessFrame(float[] rawSamples, EmgSignalView signal, float[] selectedOut, float[] envelopeOut = null)
     {
         lock (syncRoot)
         {
             EnsureReady();
-            if (rawSamples == null || filteredOut == null || rectifiedOut == null)
+            if (rawSamples == null || selectedOut == null)
                 return;
 
-            int count = Mathf.Min(channelCount, Mathf.Min(rawSamples.Length, Mathf.Min(filteredOut.Length, rectifiedOut.Length)));
+            int count = Mathf.Min(channelCount, Mathf.Min(rawSamples.Length, selectedOut.Length));
+            bool needsEnvelope = envelopeOut != null;
+
+            // If the requested signal view is raw and envelope is not needed, skip all filtering.
+            // This allows fast pass-through when the scope is set to raw view.
+            if (signal == EmgSignalView.Raw && !needsEnvelope)
+            {
+                for (int i = 0; i < count; i++)
+                    selectedOut[i] = rawSamples[i];
+
+                PushSelectedHistory(rawSamples, signal, selectedOut, null, count);
+                return;
+            }
 
             for (int i = 0; i < count; i++)
             {
@@ -143,29 +155,60 @@ public class EMGFilter : MonoBehaviour
                 float rectified = Mathf.Abs(filtered);
                 float envelope = envelopeState[i] + envelopeAlpha * (rectified - envelopeState[i]);
                 envelopeState[i] = envelope;
-                filteredOut[i] = filtered;
-                rectifiedOut[i] = rectified;
+
+                switch (signal)
+                {
+                    case EmgSignalView.Raw:
+                        selectedOut[i] = rawSamples[i];
+                        break;
+                    case EmgSignalView.Filtered:
+                        selectedOut[i] = filtered;
+                        break;
+                    case EmgSignalView.Rectified:
+                        selectedOut[i] = rectified;
+                        break;
+                    case EmgSignalView.Envelope:
+                    default:
+                        selectedOut[i] = envelope;
+                        break;
+                }
+
+                if (needsEnvelope && i < envelopeOut.Length)
+                    envelopeOut[i] = envelope;
             }
 
-            PushHistory(rawSamples, filteredOut, rectifiedOut, count);
+            PushSelectedHistory(rawSamples, signal, selectedOut, envelopeOut, count);
         }
     }
 
 
-    // PushHistory(): stores the latest samples into the rolling history buffers for later retrieval by display code.
-    private void PushHistory(float[] rawSamples, float[] filteredSamples, float[] rectifiedSamples, int count)
+    // PushSelectedHistory(): After processing a new frame, push the raw and selected signal values into the circular history buffers for later retrieval by the scope display code. 
+    //                        This decouples the real-time processing from the display and allows the scope to render historical traces without blocking the acquisition thread.
+    private void PushSelectedHistory(float[] rawSamples, EmgSignalView signal, float[] selectedSamples, float[] envelopeSamples, int count)
     {
         if (!keepHistory || rawHistory == null || count <= 0)
             return;
 
-        // Single-slot rolling write, i.e. the history buffer is updated one time-step at a time; readers reconstruct chronological order with historyWriteIndex.
         int slot = historyWriteIndex;
         for (int i = 0; i < count; i++)
         {
             rawHistory[i, slot] = rawSamples[i];
-            filteredHistory[i, slot] = filteredSamples[i];
-            rectifiedHistory[i, slot] = rectifiedSamples[i];
-            envelopeHistory[i, slot] = envelopeState[i];
+
+            switch (signal)
+            {
+                case EmgSignalView.Filtered:
+                    filteredHistory[i, slot] = selectedSamples[i];
+                    break;
+                case EmgSignalView.Rectified:
+                    rectifiedHistory[i, slot] = selectedSamples[i];
+                    break;
+                case EmgSignalView.Envelope:
+                    envelopeHistory[i, slot] = selectedSamples[i];
+                    break;
+            }
+
+            if (envelopeSamples != null && i < envelopeSamples.Length)
+                envelopeHistory[i, slot] = envelopeSamples[i];
         }
 
         historyWriteIndex++;

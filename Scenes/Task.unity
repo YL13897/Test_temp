@@ -2428,7 +2428,7 @@ MonoBehaviour:
   serverPort: 2048
   autoReconnect: 1
   reconnectInterval: 2
-  enableCsvLogging: 0
+  enableCsvLogging: 1
   csvPathOverride: 
   m2: {fileID: 507810787}
   bridge: {fileID: 507810793}
@@ -2590,10 +2590,14 @@ MonoBehaviour:
   autoSnapOnM2Reconnect: 1
   sendRateHz: 80
   delsysEnable: 1
+  emgRecordFlag: 1
+  emgPathOverride: 
+  emgSignalMode: 3
+  emgScoreDownsampleHz: 100
   emgFilter: {fileID: 1910340486}
   emgTrialIndex: 0
   emgPreviewMaxChannels: 8
-  emgPreviewHz: 5
+  emgPreviewHz: 10
 --- !u!114 &507810794
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -8421,8 +8425,8 @@ MonoBehaviour:
   debugText: {fileID: 1859135298}
   targetCanvas: {fileID: 1987703636}
   scopeRoot: {fileID: 1910340490}
-  autoScale: 0
-  signalMode: 1
+  autoScale: 1
+  signalMode: 3
 --- !u!224 &1910340490
 RectTransform:
   m_ObjectHideFlags: 0
@@ -8456,9 +8460,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::EMGScopeUIRenderer
   m_Material: {fileID: 0}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_RaycastTarget: 1
+  m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
-  m_Maskable: 1
+  m_Maskable: 0
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []

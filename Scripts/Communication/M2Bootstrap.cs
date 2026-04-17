@@ -20,7 +20,7 @@ namespace CORC.Demo
         [Header("Logging (optional)")]
         public bool enableCsvLogging = false;
 
-        [Tooltip("Default: persistentDataPath/m2_log.csv")]
+        [Tooltip(@"Default: D:\yixianglin\Desktop\PHRI_Data\m2_log.csv")]
         public string csvPathOverride = ""; // Optional override for log file path
 
         [Header("Refs")]
@@ -79,8 +79,10 @@ namespace CORC.Demo
             if (enableCsvLogging)
             {
                 csvPath = string.IsNullOrEmpty(csvPathOverride)
-                    ? System.IO.Path.Combine(Application.persistentDataPath, "m2_log.csv")
+                    ? System.IO.Path.Combine(@"D:\yixianglin\Desktop\PHRI_Data", "m2_log.csv")
                     : csvPathOverride;
+
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(csvPath));
 
                 m2.SetLoggingFile(csvPath);
                 m2.SetLogging(true);

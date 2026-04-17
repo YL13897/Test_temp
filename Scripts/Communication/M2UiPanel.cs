@@ -89,7 +89,7 @@ namespace CORC.Demo
         // Update recording buttons interactable state based on bridge status
         private void RecordBtnInteract()
         {
-            bool canStart = bridge.IsEmgReady() && !bridge.EmgIsRecording;
+            bool canStart = bridge != null && bridge.EmgRecordFlag && bridge.IsEmgReady() && !bridge.EmgIsRecording;
 
             if (startRecordingBtn)
             {
@@ -97,12 +97,13 @@ namespace CORC.Demo
 
                 if (startRecordingBtn.targetGraphic != null)
                 {
-                    startRecordingBtn.targetGraphic.color = bridge.EmgIsRecording ? startRecActiveColor : startRecIdleColor;
+                    startRecordingBtn.targetGraphic.color =
+                        bridge != null && bridge.EmgIsRecording ? startRecActiveColor : startRecIdleColor;
                 }
             }
 
             if (stopRecordingBtn)
-                stopRecordingBtn.interactable = bridge.EmgIsRecording;
+                stopRecordingBtn.interactable = bridge != null && bridge.EmgIsRecording;
         }
 
         //  Set status text with color

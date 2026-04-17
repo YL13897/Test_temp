@@ -7,8 +7,6 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using TMPro;
 
-
-
 /* 
     This component acts as a bridge between the CORC M2 robot and the Unity rover control, 
     allowing to drive the rover using M2 handle input and send realtime feedback forces to 
@@ -107,22 +105,31 @@ namespace CORC.Demo
         
         // Delsys EMG background data collection
         [SerializeField] private bool delsysEnable;
+        [SerializeField] private bool emgRecordFlag = true;
+        [SerializeField] private string emgPathOverride = "";
+        [SerializeField] private EMGFilter.EmgSignalView emgSignalMode = EMGFilter.EmgSignalView.Envelope;
+        [SerializeField] private float emgScoreDownsampleHz = 100f;
         [SerializeField] private EMGFilter emgFilter;
         private DelsysEMG delsysEMG = new DelsysEMG();
-        [SerializeField] private int emgTrialIndex = 0;
+        [SerializeField] private int emgTrialIndex = 0; 
         private bool emgIsRecording = false;
 
         [Header("EMG Channel Preview")]
         [SerializeField] private int emgPreviewMaxChannels = 8;
-        [SerializeField] private float emgPreviewHz = 5f;
+        [SerializeField] private float emgPreviewHz = 10f;
         private TMP_Text emgScoreText;
         private float emgScoreScale = 1000f;
-        private float emgScoreEmaLerp = 0.15f; // Smoothing factor for exponential moving average of EMG score, between 0 (no update) and 1 (no smoothing).
+        // private float emgScoreEmaLerp = 0.15f; // Smoothing factor for exponential moving average of EMG score, between 0 (no update) and 1 (no smoothing).
         private float emgScoreFiltered = 0f;
         private double emgScoreTimestamp = 0.0;
         private bool emgShutdown = false;
         private double nextEmgUpdateTime = 0.0; // To control the update rate of EMG preview in the UI, we track the next allowed update time based on the specified preview Hz rate.
         private string emgSessionFilePath;
+
+        private void ApplyEmgRuntimeSettings()
+        {
+            delsysEMG.SignalView = emgSignalMode;
+        }
 
         #region Private methods
         private string ConfigEMGFilePath()
@@ -130,7 +137,16 @@ namespace CORC.Demo
             if (!string.IsNullOrEmpty(emgSessionFilePath))
                 return emgSessionFilePath;
 
-            string emgDir = @"D:\yixianglin\Desktop\EMGData";
+            if (!string.IsNullOrWhiteSpace(emgPathOverride))
+            {
+                emgSessionFilePath = emgPathOverride;
+                string overrideDir = Path.GetDirectoryName(emgSessionFilePath);
+                if (!string.IsNullOrEmpty(overrideDir))
+                    Directory.CreateDirectory(overrideDir);
+                return emgSessionFilePath;
+            }
+
+            string emgDir = @"D:\yixianglin\Desktop\PHRI_Data\EMGData"; // Default directory for EMG data.
             Directory.CreateDirectory(emgDir);
             string fileName = $"M2Rover_EMG_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
             emgSessionFilePath = Path.Combine(emgDir, fileName);
@@ -142,12 +158,13 @@ namespace CORC.Demo
             return delsysEnable && delsysEMG.IsConnected() && delsysEMG.IsRunning();
         }
 
+        public bool EmgRecordFlag => emgRecordFlag;
         public bool EmgIsRecording => emgIsRecording;
         public int[] GetActiveEmgChannels() => delsysEMG.GetChannelsActiveSensor();
 
         private bool TryStartRecording()
         {
-            if (!IsEmgReady() || emgIsRecording) return false;
+            if (!emgRecordFlag || !IsEmgReady() || emgIsRecording) return false;
 
             string emgPath = ConfigEMGFilePath();
             delsysEMG.StartRecording(emgPath, Time.timeAsDouble);
@@ -207,8 +224,10 @@ namespace CORC.Demo
                 return;
             }
 
-            float[] raw = delsysEMG.GetRawEMGData();
-            if (raw == null || raw.Length == 0)
+            ApplyEmgRuntimeSettings();
+
+            float[] emg = delsysEMG.GetScoreEnvelopeData();
+            if (emg == null || emg.Length == 0)
             {
                 string emptyText = $"EMGSc: -- | t: {Time.timeAsDouble:0.0}s";
                 if (hasText) emgScoreText.text = emptyText;
@@ -216,19 +235,19 @@ namespace CORC.Demo
                 return;
             }
 
-            // Compute a simple EMG score as the mean absolute value of the raw EMG signal across all channels, scaled by emgScoreScale.
+            // Compute a simple EMG score from the downsampled envelope signal across all channels.
             float absMean = 0f;
-            for (int i = 0; i < raw.Length; i++)
-                absMean += Mathf.Abs(raw[i]);
-            absMean /= raw.Length;
+            for (int i = 0; i < emg.Length; i++)
+                absMean += Mathf.Abs(emg[i]);
+            absMean /= emg.Length;
 
             float emgScore = absMean * emgScoreScale;
 
-            // Apply exponential moving average to smooth the EMG score for preview display and scoring, to avoid excessive jitter from raw EMG fluctuations.
-            emgScoreFiltered = Mathf.Lerp(emgScoreFiltered, emgScore, Mathf.Clamp01(emgScoreEmaLerp));
+            // emgScoreFiltered = Mathf.Lerp(emgScoreFiltered, emgScore, Mathf.Clamp01(emgScoreEmaLerp));
+            emgScoreFiltered = emgScore;
             emgScoreTimestamp = Time.timeAsDouble;
 
-            string previewText = BuildEmgPreviewText(raw);
+            string previewText = BuildEmgPreviewText(emg);
             if (hasText) emgScoreText.text = previewText;
             ScoreManager.Instance?.SetEmgPreview(emgScoreFiltered, emgScoreTimestamp, previewText);
         }
@@ -293,7 +312,8 @@ namespace CORC.Demo
                 if (emgFilter == null)
                     emgFilter = FindFirstObjectByType<EMGFilter>();
 
-                delsysEMG.Init(emgFilter);
+                delsysEMG.Init(emgFilter, emgScoreDownsampleHz);
+                ApplyEmgRuntimeSettings();
                 bool connected = delsysEMG.Connect();
                 if (connected){
                     delsysEMG.StartAcquisition();
@@ -583,14 +603,20 @@ namespace CORC.Demo
             return true;
         }
 
-        // Send the computed feedback force to M2 using the FRC2 command (No needed currently, just keep it for later testing).
-        private void SendFeedbackForce(float fx, float fy, bool rateLimited = true)
-        {
-            if (rateLimited && !SendFeedbackTimer()) return;
-            if (!trialActive) return;
-            if (m2 == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return;
-            m2.SendCmd("FRC2", new double[] { fx, fy }); // M2 set all to zeros, no need to send.
-        }
+
+
+    // --------------------- For testing ------------------------
+    // Send the computed feedback force to M2 using the FRC2 command (No needed currently, just keep it for later testing).
+        // private void SendFeedbackForce(float fx, float fy, bool rateLimited = true)
+        // {
+        //     if (rateLimited && !SendFeedbackTimer()) return;
+        //     if (!trialActive) return;
+        //     if (m2 == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return;
+        //     m2.SendCmd("FRC2", new double[] { fx, fy }); // M2 set all to zeros, no need to send.
+        // }
+    // ---------------------------------------------------------
+
+
 
         // Overload for sending zero force without parameters.
         private void TrySendDisturbanceStateToM2()

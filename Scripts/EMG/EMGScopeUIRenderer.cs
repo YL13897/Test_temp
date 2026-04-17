@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEngine.UI;
 
+// EMGScopeUIRenderer: A custom UI component that renders an EMG signal scope within a Unity UI canvas, allowing for real-time visualization of EMG data with configurable appearance and scaling.
+
 [RequireComponent(typeof(CanvasRenderer), typeof(RectTransform))]
 public class EMGScopeUIRenderer : MaskableGraphic
 {

@@ -22,10 +22,10 @@ namespace CORC
                 //Define state values to receive (in pre-defined order: should match CORC implementation)
                 State = new FixedDictionary
                 {
-                    ["t"] = new double[1],
-                    ["X"] = new double[2],
-                    ["dX"] = new double[2],
-                    ["F"] = new double[2]
+                    ["t"] = new double[1], // t: running time of CORC server (s)
+                    ["X"] = new double[2], // X: M2 end-effector position (m)
+                    ["dX"] = new double[2], // dX: M2 end-effector velocity (m/s)
+                    ["F"] = new double[2] // F: M2 end-effector interaction force (N)
                 };
                 State.Init(new string[] { "t", "X", "dX", "F" });
                 Initialised = true;

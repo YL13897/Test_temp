@@ -12,6 +12,8 @@ using System.Threading;
 // Debug
 using UnityEngine;
 
+// DelsysEMG: A Unity component that manages the connection to a Delsys EMG system, handles data acquisition in a background thread, 
+//            processes EMG signals using an optional EMGFilter, and supports recording to CSV files with proper synchronization.
 
 public class DelsysEMG
 {
@@ -51,15 +53,19 @@ public class DelsysEMG
 
 
     //The following are storage for acquired data
-    private float[] tempEmgDataList = new float[16];
-    private float[] tempFilteredEmgDataList = new float[16];
-    private float[] tempRectifiedEmgDataList = new float[16];
-    private float[] filterInputFrame = new float[16];
-    private float[] filterOutputFrame = new float[16];
-    private float[] rectifiedOutputFrame = new float[16];
+    // private float[] tempEmgDataList = new float[16]; // Legacy raw cache, kept commented for reference.
+    private float[] tempSelectedEmgDataList = new float[16];
+    private float[] tempEnvelopeDataList = new float[16];
+    private float[] processingInputFrame = new float[16];
+    private float[] selectedOutputFrame = new float[16];
+    private float[] scoreEnvelopeFrame = new float[16];
     private readonly object dataLock = new object();
     private readonly object recordingLock = new object();
     private EMGFilter emgFilter;
+    private EMGFilter.EmgSignalView signalView = EMGFilter.EmgSignalView.Envelope;
+    private float scoreDownsampleHz = 100f;
+    private double downSampleAccumulator = 0.0; // Accumulator for downsampling the score envelope output to a lower frequency.
+                                                // Samples are added up and published when it reaches the target score period.
 
     //Sensor status
     private bool connected = false; //true if connected to server
@@ -80,15 +86,15 @@ public class DelsysEMG
         activeSensorChannels.Clear();
         _sensors.Clear();
 
-        for (int i = 0; i < tempEmgDataList.Length; i++)
+        for (int i = 0; i < tempSelectedEmgDataList.Length; i++)
         {
-            tempEmgDataList[i] = 0f;
-            tempFilteredEmgDataList[i] = 0f;
-            tempRectifiedEmgDataList[i] = 0f;
-            filterInputFrame[i] = 0f;
-            filterOutputFrame[i] = 0f;
-            rectifiedOutputFrame[i] = 0f;
+            tempSelectedEmgDataList[i] = 0f;
+            tempEnvelopeDataList[i] = 0f;
+            processingInputFrame[i] = 0f;
+            selectedOutputFrame[i] = 0f;
+            scoreEnvelopeFrame[i] = 0f;
         }
+        downSampleAccumulator = 0.0;
 
         recording = false;
         running = false;
@@ -117,12 +123,29 @@ public class DelsysEMG
     private string BuildRecordingHeader()
     {
         StringBuilder header = new StringBuilder("t");
+        string prefix = GetSignalLabel();
         for (int i = 0; i < 16; i++)
         {
             if (_sensors[i] == SensorTypes.SensorTrignoImu || _sensors[i] == SensorTypes.SensorTrigno)
-                header.Append(",ch").Append(i + 1);
+                header.Append(',').Append(prefix).Append("_ch").Append(i + 1);
         }
         return header.ToString();
+    }
+
+    private string GetSignalLabel()
+    {
+        switch (signalView)
+        {
+            case EMGFilter.EmgSignalView.Raw:
+                return "raw";
+            case EMGFilter.EmgSignalView.Filtered:
+                return "filtered";
+            case EMGFilter.EmgSignalView.Rectified:
+                return "rectified";
+            case EMGFilter.EmgSignalView.Envelope:
+            default:
+                return "envelope";
+        }
     }
 
     private void WriteRecordingFrame(float[] frame)
@@ -157,12 +180,13 @@ public class DelsysEMG
 
     #region Initialization and connection
     //Initialization
-    public void Init(EMGFilter filter = null)
+    public void Init(EMGFilter filter = null, float scoreHz = 100f)
     {
         ResetLocalState();
         emgFilter = filter;
+        scoreDownsampleHz = Mathf.Max(1f, scoreHz);
         if (emgFilter != null)
-            emgFilter.Configure(tempEmgDataList.Length, samplingInterval > 0f ? 1f / samplingInterval : 1111.1111f);
+            emgFilter.Configure(tempSelectedEmgDataList.Length, samplingInterval > 0f ? 1f / samplingInterval : 1111.1111f);
         sensorList.Clear();
         sensorList.Add("A", SensorTypes.SensorTrigno);
         sensorList.Add("D", SensorTypes.SensorTrigno);
@@ -172,6 +196,13 @@ public class DelsysEMG
 
         Debug.Log("Delsys-> Initialize DelsysEMG");
     }
+
+    public EMGFilter.EmgSignalView SignalView
+    {
+        get => signalView;
+        set => signalView = value;
+    }
+
 
     //Establish sensors connnection
     public bool Connect()
@@ -380,11 +411,19 @@ public class DelsysEMG
 
     #region Get sensor status and readings
     //Return the latest readings
-    public float[] GetRawEMGData()
+    public float[] GetSelectedEMGData()
     {
         lock (dataLock)
         {
-            return CopyActiveChannelData(tempEmgDataList);
+            return CopyActiveChannelData(tempSelectedEmgDataList);
+        }
+    }
+
+    public float[] GetScoreEnvelopeData()
+    {
+        lock (dataLock)
+        {
+            return CopyActiveChannelData(tempEnvelopeDataList);
         }
     }
 
@@ -490,22 +529,36 @@ public class DelsysEMG
                 if (emgFilter != null)
                 {
                     for (int sn = 0; sn < 16; ++sn)
-                        filterInputFrame[sn] = frame[sn];
+                        processingInputFrame[sn] = frame[sn];
 
-                    emgFilter.ProcessFrame(filterInputFrame, filterOutputFrame, rectifiedOutputFrame);
+                    emgFilter.ProcessFrame(processingInputFrame, signalView, selectedOutputFrame, scoreEnvelopeFrame);
                 }
+                else
+                {
+                    for (int sn = 0; sn < 16; ++sn)
+                    {
+                        selectedOutputFrame[sn] = frame[sn];
+                        scoreEnvelopeFrame[sn] = Mathf.Abs(frame[sn]);
+                    }
+                }
+
+                downSampleAccumulator += samplingInterval;
+                double scorePeriodSec = 1.0 / Mathf.Max(1f, scoreDownsampleHz);
+                bool envelopeScorePublish = downSampleAccumulator >= scorePeriodSec;
+                if (envelopeScorePublish)
+                    downSampleAccumulator %= scorePeriodSec;
 
                 lock (dataLock)
                 {
                     for (int sn = 0; sn < 16; ++sn)
                     {
-                        tempEmgDataList[sn] = frame[sn];
-                        tempFilteredEmgDataList[sn] = emgFilter != null ? filterOutputFrame[sn] : frame[sn];
-                        tempRectifiedEmgDataList[sn] = emgFilter != null ? rectifiedOutputFrame[sn] : Mathf.Abs(frame[sn]);
+                        tempSelectedEmgDataList[sn] = selectedOutputFrame[sn]; 
+                        if (envelopeScorePublish)
+                            tempEnvelopeDataList[sn] = scoreEnvelopeFrame[sn];
                     }
                 }
 
-                WriteRecordingFrame(frame);
+                WriteRecordingFrame(selectedOutputFrame);
 
             }
             catch (IOException e)

@@ -3,6 +3,7 @@ using TMPro;
 using UnityEngine;
 using CORC.Demo;
 
+// EMGScope: A Unity component that visualizes EMG signals in real-time using a custom UI renderer, supporting multiple channels and auto-scaling based on signal amplitude.
 [RequireComponent(typeof(RectTransform))]
 public class EMGScope : MonoBehaviour
 {
