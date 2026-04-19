@@ -9,9 +9,14 @@ public class ScoreSystem : MonoBehaviour
     [SerializeField] Rigidbody leaderRb;
 
     [Header("Scoring Parameters")]
-    public float trackingScoreRate = 10.0f; // max score per second when player x stays within the leader width band
-    public float CappedWidthX = 1.0f; // full-score band around the leader center
+    public float trackingScoreRate = 10.0f; // points deducted per second per unit total cost
+    public float CappedWidthX = 1.0f; // retained for pointer/full-alignment band logic
     public float penaltyValue = 500f;
+
+    [Header("Composite Score Weights")]
+    [SerializeField] float w_tr = 1f;
+    [SerializeField] float w_u = 1f;
+    [SerializeField] float w_emg = 1f;
 
     [Header("Global Boundary")]
     public float minX = -4.5f;
@@ -20,6 +25,8 @@ public class ScoreSystem : MonoBehaviour
 
     [Header("Penalty Control")]
     public float penaltyCooldown = 1.0f; // seconds between penalties while touching boundary
+
+    private CORC.Demo.M2RoverBridge bridge;
 
     void Awake()
     {
@@ -35,6 +42,7 @@ public class ScoreSystem : MonoBehaviour
             if (leader != null) leaderRb = leader.GetComponent<Rigidbody>();
         }
 
+        bridge = FindFirstObjectByType<CORC.Demo.M2RoverBridge>();
         if (targetRb == null || leaderRb == null)
             Debug.LogError("[ScoreSystem] No Rigidbody assigned or found.");
 
@@ -44,7 +52,7 @@ public class ScoreSystem : MonoBehaviour
 
     void FixedUpdate()
     {
-        // if (targetRb == null || leaderRb == null || ScoreManager.Instance == null) return;
+        if (targetRb == null || leaderRb == null || ScoreManager.Instance == null) return;
 
         if (!ScoreManager.Instance.HasStartedScoring || ScoreManager.Instance.IsScorePaused)
         {
@@ -61,11 +69,18 @@ public class ScoreSystem : MonoBehaviour
             return;
         }
 
-        float xError = Mathf.Abs(targetRb.position.x - leaderRb.position.x);
-        float cappedError = Mathf.Max(0f, xError - CappedWidthX);
-        float maxError = Mathf.Max(0.001f, (maxX - minX) - CappedWidthX);
-        float closeness = 1f - Mathf.Clamp01(cappedError / maxError);
-        float deltaScore = trackingScoreRate * closeness * Time.fixedDeltaTime;
+        float xRover = targetRb.position.x;
+        float xLeader = leaderRb.position.x;
+        float xError = xLeader - xRover;
+        float handleFx = GetHandleFx();
+
+        float trackCost = CappedWidthX * CappedWidthX - xError * xError; // >0 inside band, 0 at boundary, <0 outside band
+        float forceCost = handleFx * handleFx;
+        float emgCost = ScoreManager.Instance.EmgScore;
+        float totalCost = w_tr * trackCost + w_u * forceCost + w_emg * emgCost;
+        float deltaScore = -trackingScoreRate * totalCost * Time.fixedDeltaTime;
+
+        ScoreManager.Instance.SetCompositeMetrics(handleFx, trackCost, forceCost, emgCost, totalCost);
         ScoreManager.Instance.AddToScores(deltaScore);
     }
 
@@ -97,5 +112,14 @@ public class ScoreSystem : MonoBehaviour
         }
 
         return hitBoundary;
+    }
+
+    float GetHandleFx()
+    {
+        if (bridge == null || bridge.m2 == null) return 0f;
+        var m2 = bridge.m2;
+        if (!m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return 0f;
+        if (m2.State == null || m2.State["F"] == null || m2.State["F"].Length < 1) return 0f;
+        return (float)m2.State["F"][0];
     }
 }

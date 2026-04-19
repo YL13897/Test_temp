@@ -76,7 +76,8 @@ public class LeaderHandler : MonoBehaviour
         {
             Vector3 v = rb.linearVelocity;
             v.z = targetForwardSpeed;
-            float alpha = Mathf.Clamp01(lateralDamping * Time.fixedDeltaTime);
+            float alpha = lateralDamping * Time.fixedDeltaTime;
+            if (alpha > 1f) alpha = 1f; // Avoid going below 0, as Time.fixedDeltaTime and damping are positive
             v.x = Mathf.Lerp(v.x, 0f, alpha);
             rb.linearVelocity = v;
             return;

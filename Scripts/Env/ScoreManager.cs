@@ -17,6 +17,11 @@ public class ScoreManager : MonoBehaviour
     public float EmgScore { get; private set; }
     public double EmgTimestamp { get; private set; }
     public string EmgDetails { get; private set; }
+    public float HandleFx { get; private set; }
+    public float TrackCost { get; private set; }
+    public float ForceCost { get; private set; }
+    public float EmgCost { get; private set; }
+    public float TotalCost { get; private set; }
     public bool HasStartedScoring { get; private set; }
     public bool IsScorePaused { get; private set; }
     private double nextPenaltytime = 0.0;
@@ -42,6 +47,7 @@ public class ScoreManager : MonoBehaviour
         EmgScore = 0f;
         EmgTimestamp = 0.0;
         EmgDetails = "";
+        ResetCompositeMetrics();
         HasStartedScoring = false;
         IsScorePaused = false;
         nextPenaltytime = 0.0;
@@ -76,9 +82,19 @@ public class ScoreManager : MonoBehaviour
         IsScorePaused = paused;
     }
 
+    public void SetCompositeMetrics(float handleFx, float trackCost, float forceCost, float emgCost, float totalCost)
+    {
+        HandleFx = handleFx;
+        TrackCost = trackCost;
+        ForceCost = forceCost;
+        EmgCost = emgCost;
+        TotalCost = totalCost;
+    }
+
     public void ResetSection()
     {
         SectionScore = 0f;
+        ResetCompositeMetrics();
         if (sectionBar != null)
         {
             sectionBar.minValue = 0f;
@@ -92,6 +108,7 @@ public class ScoreManager : MonoBehaviour
     {
         GlobalScore = 0f;
         SectionScore = 0f;
+        ResetCompositeMetrics();
         HasStartedScoring = false;
         nextPenaltytime = 0.0;
 
@@ -131,6 +148,15 @@ public class ScoreManager : MonoBehaviour
         ApplyBoundaryPenalty(Mathf.Abs(penalty));
         nextPenaltytime = now + cooldown;
         return true;
+    }
+
+    void ResetCompositeMetrics()
+    {
+        HandleFx = 0f;
+        TrackCost = 0f;
+        ForceCost = 0f;
+        EmgCost = 0f;
+        TotalCost = 0f;
     }
 
 

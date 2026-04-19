@@ -2428,8 +2428,6 @@ MonoBehaviour:
   serverPort: 2048
   autoReconnect: 1
   reconnectInterval: 2
-  enableCsvLogging: 1
-  csvPathOverride: 
   m2: {fileID: 507810787}
   bridge: {fileID: 507810793}
 --- !u!114 &507810787
@@ -2514,8 +2512,11 @@ MonoBehaviour:
   trackingScoreRate: 1
   CappedWidthX: 1
   penaltyValue: 500
-  minX: -9
-  maxX: 9
+  w_tr: 1
+  w_u: 1
+  w_emg: 1
+  minX: -4.5
+  maxX: 4.5
   enableBoundaryClamp: 1
   penaltyCooldown: 1
 --- !u!114 &507810792
@@ -2546,9 +2547,11 @@ MonoBehaviour:
   leftRfCount: 1
   rightLfCount: 0
   leader: {fileID: 1812959198}
-  trialIndexText: {fileID: 6810793}
+  sectionIndexText: {fileID: 6810793}
   countdownText: {fileID: 1538615091}
   countdownSeconds: 5
+  startBlockIdx: 1
+  startSectionIdx: 1
 --- !u!114 &507810793
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2591,10 +2594,12 @@ MonoBehaviour:
   delsysEnable: 1
   emgRecordFlag: 1
   emgPathOverride: 
+  scoreLogRecordFlag: 1
+  scoreLogPathOverride: 
   emgSignalMode: 3
   emgScoreDownsampleHz: 100
   emgFilter: {fileID: 1910340486}
-  emgTrialIndex: 0
+  emgRecordCount: 0
   emgPreviewMaxChannels: 8
   emgPreviewHz: 10
 --- !u!114 &507810794

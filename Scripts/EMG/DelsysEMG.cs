@@ -543,7 +543,7 @@ public class DelsysEMG
                 }
 
                 downSampleAccumulator += samplingInterval;
-                double scorePeriodSec = 1.0 / Mathf.Max(1f, scoreDownsampleHz);
+                double scorePeriodSec = 1.0 / scoreDownsampleHz; // scoreDownsampleHz is safely bounded in Init
                 bool envelopeScorePublish = downSampleAccumulator >= scorePeriodSec;
                 if (envelopeScorePublish)
                     downSampleAccumulator %= scorePeriodSec;

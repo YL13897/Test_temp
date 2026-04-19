@@ -108,15 +108,15 @@ namespace CORC.Demo
         [SerializeField] private bool delsysEnable;
         [SerializeField] private bool emgRecordFlag = true;
         [SerializeField] private string emgPathOverride = "";
-        [SerializeField] private bool m2LogRecordFlag = true;
-        [SerializeField] private string m2LogPathOverride = "";
+        [SerializeField] private bool scoreLogRecordFlag = true;
+        [SerializeField] private string scoreLogPathOverride = "";
         [SerializeField] private EMGFilter.EmgSignalView emgSignalMode = EMGFilter.EmgSignalView.Envelope;
         [SerializeField] private float emgScoreDownsampleHz = 100f;
         [SerializeField] private EMGFilter emgFilter;
         private DelsysEMG delsysEMG = new DelsysEMG();
         [SerializeField] private int emgRecordCount = 0; // To keep track of EMG recordings within the current block.
         private bool emgIsRecording = false;
-        private bool m2LogIsRecording = false;
+        private bool scoreLogIsRecording = false;
 
         [Header("EMG Channel Preview")]
         [SerializeField] private int emgPreviewMaxChannels = 8;
@@ -129,7 +129,10 @@ namespace CORC.Demo
         private bool emgShutdown = false;
         private double nextEmgUpdateTime = 0.0; // To control the update rate of EMG preview in the UI, we track the next allowed update time based on the specified preview Hz rate.
         private string emgSessionFilePath;
-        private string m2LogSessionFilePath;
+        private string scoreLogSessionFilePath;
+        private StreamWriter scoreLogWriter;
+        private int scoreLogFlushInterval = 200;
+        private int scoreLogRowsSinceFlush = 0;
 
         private void ApplyEmgRuntimeSettings()
         {
@@ -151,32 +154,32 @@ namespace CORC.Demo
                 return emgSessionFilePath;
             }
 
-            string emgDir = @"D:\yixianglin\Desktop\PHRI_Data\EMGData"; // Default directory for EMG data.
+            string emgDir = @"D:\yixianglin\Desktop\PHRI_Data"; // Default directory for EMG data.
             Directory.CreateDirectory(emgDir);
-            string fileName = $"M2Rover_EMG_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+            string fileName = $"EmgLogs_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
             emgSessionFilePath = Path.Combine(emgDir, fileName);
             return emgSessionFilePath;
         }
 
-        private string ConfigM2LogFilePath()
+        private string ConfigScoreLogFilePath()
         {
-            if (!string.IsNullOrEmpty(m2LogSessionFilePath))
-                return m2LogSessionFilePath;
+            if (!string.IsNullOrEmpty(scoreLogSessionFilePath))
+                return scoreLogSessionFilePath;
 
-            if (!string.IsNullOrWhiteSpace(m2LogPathOverride))
+            if (!string.IsNullOrWhiteSpace(scoreLogPathOverride))
             {
-                m2LogSessionFilePath = m2LogPathOverride;
-                string overrideDir = Path.GetDirectoryName(m2LogSessionFilePath);
+                scoreLogSessionFilePath = scoreLogPathOverride;
+                string overrideDir = Path.GetDirectoryName(scoreLogSessionFilePath);
                 if (!string.IsNullOrEmpty(overrideDir))
                     Directory.CreateDirectory(overrideDir);
-                return m2LogSessionFilePath;
+                return scoreLogSessionFilePath;
             }
 
             string logDir = @"D:\yixianglin\Desktop\PHRI_Data";
             Directory.CreateDirectory(logDir);
-            string fileName = $"M2Rover_Log_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
-            m2LogSessionFilePath = Path.Combine(logDir, fileName);
-            return m2LogSessionFilePath;
+            string fileName = $"ExpLogs_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+            scoreLogSessionFilePath = Path.Combine(logDir, fileName);
+            return scoreLogSessionFilePath;
         }
 
         public bool IsEmgReady()
@@ -184,17 +187,17 @@ namespace CORC.Demo
             return delsysEnable && delsysEMG.IsConnected() && delsysEMG.IsRunning();
         }
 
-        public bool IsM2LogReady()
+        public bool IsScoreLogReady()
         {
-            return m2 != null && m2.IsInitialised() && m2.Client != null && m2.Client.IsConnected();
+            return ScoreManager.Instance != null;
         }
 
         public bool EmgRecordFlag => emgRecordFlag;
         public bool EmgIsRecording => emgIsRecording;
-        public bool M2LogRecordFlag => m2LogRecordFlag;
-        public bool M2LogIsRecording => m2LogIsRecording;
-        public bool CanStartAnyRecording => (emgRecordFlag && IsEmgReady() && !emgIsRecording) || (m2LogRecordFlag && IsM2LogReady() && !m2LogIsRecording);
-        public bool AnyRecordingActive => emgIsRecording || m2LogIsRecording;
+        public bool ScoreLogRecordFlag => scoreLogRecordFlag;
+        public bool ScoreLogIsRecording => scoreLogIsRecording;
+        public bool CanStartAnyRecording => (emgRecordFlag && IsEmgReady() && !emgIsRecording) || (scoreLogRecordFlag && IsScoreLogReady() && !scoreLogIsRecording);
+        public bool AnyRecordingActive => emgIsRecording || scoreLogIsRecording;
         public int[] GetActiveEmgChannels() => delsysEMG.GetChannelsActiveSensor();
 
         private bool TryStartEmgRecording()
@@ -219,34 +222,51 @@ namespace CORC.Demo
             return true;
         }
 
-        private bool TryStartM2LogRecording()
+        private bool TryStartScoreLogRecording()
         {
-            if (!m2LogRecordFlag || !IsM2LogReady() || m2LogIsRecording) return false;
+            if (!scoreLogRecordFlag || !IsScoreLogReady() || scoreLogIsRecording) return false;
 
-            string logPath = ConfigM2LogFilePath();
-            m2.SetLoggingFile(logPath);
-            if (!m2.SetLogging(true)) return false;
+            if (scoreLogWriter == null)
+            {
+                string logPath = ConfigScoreLogFilePath();
+                bool append = File.Exists(logPath) && new FileInfo(logPath).Length > 0;
+                scoreLogWriter = new StreamWriter(logPath, append, Encoding.ASCII);
+                scoreLogRowsSinceFlush = 0;
+                if (!append)
+                {
+                    scoreLogWriter.WriteLine("t,x_rover,x_leader,handle_fx,track_cost,force_cost,emg_cost,block_index,section_index");
+                    scoreLogWriter.Flush();
+                }
+            }
 
-            m2LogIsRecording = true;
+            scoreLogIsRecording = true;
             return true;
         }
 
-        private bool TryStopM2LogRecording()
+        private bool TryStopScoreLogRecording()
         {
-            if (!m2LogIsRecording) return false;
+            if (!scoreLogIsRecording) return false;
 
-            if (m2 != null)
-                m2.SetLogging(false);
-
-            m2LogIsRecording = false;
+            try { scoreLogWriter?.Flush(); } catch { }
+            scoreLogRowsSinceFlush = 0;
+            scoreLogIsRecording = false;
             return true;
+        }
+
+        private void CloseScoreLogSession()
+        {
+            try { scoreLogWriter?.Flush(); } catch { }
+            try { scoreLogWriter?.Dispose(); } catch { }
+            scoreLogWriter = null;
+            scoreLogRowsSinceFlush = 0;
+            scoreLogIsRecording = false;
         }
 
         public bool StartAuxRecordingManual()
         {
             bool changed = false;
             if (TryStartEmgRecording()) changed = true;
-            if (TryStartM2LogRecording()) changed = true;
+            if (TryStartScoreLogRecording()) changed = true;
             return changed;
         }
 
@@ -254,7 +274,7 @@ namespace CORC.Demo
         {
             bool changed = false;
             if (TryStopEmgRecording()) changed = true;
-            if (TryStopM2LogRecording()) changed = true;
+            if (TryStopScoreLogRecording()) changed = true;
             return changed;
         }
 
@@ -263,7 +283,8 @@ namespace CORC.Demo
             if (emgShutdown) return;
             emgShutdown = true;
 
-            try { StopAuxRecordingManual(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG/M2 log stop during shutdown failed: {ex.Message}"); }
+            try { StopAuxRecordingManual(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG/score log stop during shutdown failed: {ex.Message}"); }
+            try { CloseScoreLogSession(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] score log close during shutdown failed: {ex.Message}"); }
             if (!delsysEnable) return;
             try { if (delsysEMG.IsRunning()) delsysEMG.StopAcquisition(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG stop acquisition during shutdown failed: {ex.Message}"); }
             try { if (delsysEMG.IsConnected()) delsysEMG.Close(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG close during shutdown failed: {ex.Message}"); }
@@ -272,7 +293,7 @@ namespace CORC.Demo
         private void UpdateEmgScorePreview()
         {
             double now = Time.unscaledTimeAsDouble;
-            double interval = 1.0 / Mathf.Max(1f, emgPreviewHz);
+            double interval = 1.0 / emgPreviewHz;
             if (now < nextEmgUpdateTime) return;
             nextEmgUpdateTime = now + interval;
 
@@ -387,6 +408,37 @@ namespace CORC.Demo
             }
             #endregion
 
+        }
+
+        private void WriteScoreLogRow()
+        {
+            if (!scoreLogIsRecording || scoreLogWriter == null || ScoreManager.Instance == null) return;
+
+            float xRover = roverTransform != null ? roverTransform.position.x : 0f;
+            float xLeader = leader != null ? leader.transform.position.x : 0f;
+            int blockIndex = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentBlockNumber : 0;
+            int sectionIndex = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentSectionNumber : 0;
+
+            StringBuilder line = new StringBuilder(160);
+            line.Append(Time.timeAsDouble.ToString("F6")).Append(',')
+                .Append(xRover.ToString("F6")).Append(',')
+                .Append(xLeader.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.HandleFx.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.TrackCost.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.ForceCost.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.EmgCost.ToString("F6")).Append(',')
+                .Append(blockIndex).Append(',')
+                .Append(sectionIndex);
+
+            scoreLogWriter.WriteLine(line.ToString());
+            scoreLogRowsSinceFlush++;
+
+            // Flush the writer every scoreLogFlushInterval rows to ensure data is written to disk in a timely manner without flushing on every single write.
+            if (scoreLogRowsSinceFlush >= scoreLogFlushInterval)
+            {
+                scoreLogWriter.Flush();
+                scoreLogRowsSinceFlush = 0;
+            }
         }
 
         // ----------------------------------------------------------------------------------------------------------------------
@@ -855,6 +907,7 @@ namespace CORC.Demo
                 ScoreManager.Instance.SetScorePaused(isPaused || (unityMode == UnityDriveMode.Mode2_M2 && !blockActive));
 
             UpdateEmgScorePreview();
+            WriteScoreLogRow();
 
         }    
 

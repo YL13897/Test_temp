@@ -394,9 +394,6 @@ namespace CORC.Demo
             if (startRecordingBtn)
                 startRecordingBtn.interactable = false; // block double click while handling click
 
-            m2?.SetCsvLogContext(
-                blockControl.CurrentBlockNumber,
-                blockControl.CurrentSectionNumber);
             bridge.StartAuxRecordingManual();
             RecordBtnInteract();
         }
@@ -458,9 +455,6 @@ namespace CORC.Demo
 
             TryApplyPendingM2Setup();
             SetCommandButtonsInteractable();
-            m2?.SetCsvLogContext(
-                blockControl.CurrentBlockNumber,
-                blockControl.CurrentSectionNumber);
 
             if (blockControl != null && blockControl.ShouldAutoPauseNow)
                 PauseOnBlockCompletion();
