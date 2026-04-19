@@ -85,8 +85,8 @@ public class ExperimentBlockControl : MonoBehaviour
         {
             if (!HasPreparedBlock) return 0;
             if (blockRunning)
-                return Mathf.Clamp(sectionInBlock, 1, sectionsPerBlock);
-            return Mathf.Clamp(sectionInBlock + 1, 1, sectionsPerBlock);
+                return Mathf.Clamp(sectionInBlock, 1, SectionsPerBlock);
+            return Mathf.Clamp(sectionInBlock + 1, 1, SectionsPerBlock);
         }
     }
     public bool ShouldAutoPauseNow => autoPauseAtTime >= 0f && autoPauseAtTime != AutoPauseRequested && Time.time >= autoPauseAtTime;
@@ -94,8 +94,13 @@ public class ExperimentBlockControl : MonoBehaviour
     public float CountdownRemain => CountdownActive ? nextBlockStartAt - Time.time : 0f;
     public int CurrentDirection => GetUpcomingSectionSpec().previewDirection;
     
-    int sectionsPerBlock = 1;
-    int SectionsPerBlock => sectionsPerBlock;
+    int SectionsPerBlock 
+    {
+        get {
+            int total = leftLfCount + rightRfCount + leftRfCount + rightLfCount;
+            return total < 1 ? 1 : total;
+        }
+    }
 
     void Awake()
     {
@@ -106,9 +111,6 @@ public class ExperimentBlockControl : MonoBehaviour
         }
 
         Instance = this;
-
-        sectionsPerBlock = leftLfCount + rightRfCount + leftRfCount + rightLfCount;
-        if (sectionsPerBlock < 1) sectionsPerBlock = 1;
 
         if (leader == null)
             leader = FindFirstObjectByType<LeaderHandler>();
@@ -126,7 +128,7 @@ public class ExperimentBlockControl : MonoBehaviour
     public void PrepareRound()
     {
         currentBlockIndex = Mathf.Clamp(startBlockIdx - 1, 0, blockProbabilities.Length - 1);
-        pendingStartSectionOffset = Mathf.Clamp(startSectionIdx - 1, 0, sectionsPerBlock - 1);
+        pendingStartSectionOffset = Mathf.Clamp(startSectionIdx - 1, 0, SectionsPerBlock - 1);
         sectionInBlock = pendingStartSectionOffset;
         blockRunning = false;
         autoPauseAtTime = -1f;
@@ -269,7 +271,7 @@ public class ExperimentBlockControl : MonoBehaviour
 
     void StartNextSection()
     {
-        if (sectionInBlock >= sectionsPerBlock)
+        if (sectionInBlock >= SectionsPerBlock)
         {
             CompleteCurrentBlock();
             return; // Prevent incrementing past the max sections
@@ -292,8 +294,8 @@ public class ExperimentBlockControl : MonoBehaviour
     // Returns an array of target X positions for each section in the block.
     float[] BuildLaneSequence(int startOffset = 0)
     {
-        List<float> sequence = new List<float>(sectionsPerBlock - startOffset);
-        for (int i = startOffset; i < sectionsPerBlock; i++)
+        List<float> sequence = new List<float>(SectionsPerBlock - startOffset);
+        for (int i = startOffset; i < SectionsPerBlock; i++)
             sequence.Add(GetSectionSpecAtBlockIndex(i).leaderTargetX);
 
         return sequence.ToArray();
@@ -352,7 +354,7 @@ public class ExperimentBlockControl : MonoBehaviour
             {
                 bool sectionStarted = ScoreManager.Instance != null && ScoreManager.Instance.HasStartedScoring;
                 int displaySection = sectionStarted ? sectionInBlock : sectionInBlock + 1;
-                sectionIndexText.text = $"Block: {CurrentBlockNumber}/{blockProbabilities.Length} | Section: {displaySection}/{sectionsPerBlock}";
+                sectionIndexText.text = $"Block: {CurrentBlockNumber}/{blockProbabilities.Length} | Section: {displaySection}/{SectionsPerBlock}";
             }
         }
 

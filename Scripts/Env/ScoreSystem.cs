@@ -9,14 +9,14 @@ public class ScoreSystem : MonoBehaviour
     [SerializeField] Rigidbody leaderRb;
 
     [Header("Scoring Parameters")]
-    public float trackingScoreRate = 10.0f; // points deducted per second per unit total cost
+    public float scoreAccumRate = 1.0f; // points deducted per second per unit total cost
     public float CappedWidthX = 1.0f; // retained for pointer/full-alignment band logic
     public float penaltyValue = 500f;
 
     [Header("Composite Score Weights")]
-    [SerializeField] float w_tr = 1f;
-    [SerializeField] float w_u = 1f;
-    [SerializeField] float w_emg = 1f;
+    [SerializeField] float w_tr = 0.1f;
+    [SerializeField] float w_u = 0.0001f;
+    [SerializeField] float w_emg = 2000f;
 
     [Header("Global Boundary")]
     public float minX = -4.5f;
@@ -74,13 +74,17 @@ public class ScoreSystem : MonoBehaviour
         float xError = xLeader - xRover;
         float handleFx = GetHandleFx();
 
-        float trackCost = CappedWidthX * CappedWidthX - xError * xError; // >0 inside band, 0 at boundary, <0 outside band
+        float trackCost = CappedWidthX * CappedWidthX - xError * xError; // <0 inside band, 0 at boundary, >0 outside band
         float forceCost = handleFx * handleFx;
         float emgCost = ScoreManager.Instance.EmgScore;
-        float totalCost = w_tr * trackCost + w_u * forceCost + w_emg * emgCost;
-        float deltaScore = -trackingScoreRate * totalCost * Time.fixedDeltaTime;
+        
+        float wTrack = w_tr * trackCost;
+        float wForce = w_u * forceCost;
+        float wEmg = w_emg * emgCost;
+        float totalCost = wTrack + wForce + wEmg;
+        float deltaScore = scoreAccumRate * totalCost * Time.fixedDeltaTime;
 
-        ScoreManager.Instance.SetCompositeMetrics(handleFx, trackCost, forceCost, emgCost, totalCost);
+        ScoreManager.Instance.SetCompositeMetrics(handleFx, wTrack, wForce, wEmg, totalCost);
         ScoreManager.Instance.AddToScores(deltaScore);
     }
 

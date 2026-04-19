@@ -178,7 +178,7 @@ public class ScoreManager : MonoBehaviour
             globalScoreText.text = $"ToSc: {GlobalScore:0}";
 
         if (sectionScoreText != null)
-            sectionScoreText.text = $"SeSc: {SectionScore:0}";
+            sectionScoreText.text = $"SeSc: {SectionScore:0} | Trk: {TrackCost:0.0} | Frc: {ForceCost:0.0} | EMG: {EmgCost:0.0} | Tot: {TotalCost:0.0}";
 
         if (emgScoreText != null)
             emgScoreText.text = string.IsNullOrEmpty(EmgDetails)
