@@ -29,6 +29,7 @@ namespace CORC.Demo
 
         [Header("Participant Calibration")]
         public float CalibForce = 50f;
+        public float StandbyK = 1200f;
 
         public float m2CenterX = 0.32f; // The M2 handle X position that corresponds to the center reference (point A).
 
@@ -367,8 +368,21 @@ namespace CORC.Demo
         {
             if (float.TryParse(value, out float parsed))
             {
-                CalibForce = Mathf.Max(1.0f, parsed);
+                CalibForce = Mathf.Clamp(parsed, 1.0f, 100.0f);
                 Debug.Log($"[M2RoverBridge] Participant CalibForce updated to: {CalibForce} N");
+            }
+        }
+
+        public void SetStandbyK(string value)
+        {
+            if (float.TryParse(value, out float parsed))
+            {
+                StandbyK = Mathf.Clamp(parsed, 10f, 2000f);
+                if (m2 != null && m2.IsInitialised() && m2.Client != null && m2.Client.IsConnected())
+                {
+                    m2.SendCmd("STBK", new double[] { StandbyK });
+                }
+                Debug.Log($"[M2RoverBridge] Standby K updated to: {StandbyK}");
             }
         }
 
@@ -760,8 +774,8 @@ namespace CORC.Demo
             int direction = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentDirection : -1;
             
             // Send dynamic disturbance magnitude (-X or +X N) calculated from participant's CalibForce
-            CalibForce = Mathf.Clamp(CalibForce, 1.0f, 100.0f); // Ensure CalibForce is within a reasonable range to prevent extreme disturbance commands.
             double disturbanceMagnitude = (double)(CalibForce * 0.4f);
+            disturbanceMagnitude = Mathf.Clamp((float)disturbanceMagnitude, 1f, 50.0f); // Clamp the disturbance magnitude to prevent excessively large forces.
             double disturbanceCmd = state ? (direction < 0 ? -disturbanceMagnitude : disturbanceMagnitude) : 0.0;
 
             if (!hasSentDisturbanceState || state != lastDisturbanceState)

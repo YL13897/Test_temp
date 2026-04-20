@@ -39,6 +39,7 @@ namespace CORC.Demo
 
         [Header("Inputs")]
         public TMP_InputField calibForceInput; // Link to UI text field for participant calibration
+        public TMP_InputField standbyKInput; // Link to UI text field for Standby K value
 
         private IM2Proxy proxy;
         private const string SetHriCmd = "S_MD";
@@ -419,6 +420,16 @@ namespace CORC.Demo
             }
         }
 
+        private void OnStandbyKEdit(string value)
+        {
+            if (bridge != null)
+            {
+                bridge.SetStandbyK(value);
+                if (standbyKInput != null)
+                    standbyKInput.text = bridge.StandbyK.ToString();
+            }
+        }
+
 
         // ---------------------------------------------------------------------------------------------
         // ---------------------------------- Unity Lifecycle ------------------------------------------
@@ -443,6 +454,11 @@ namespace CORC.Demo
             {
                 calibForceInput.text = (bridge != null) ? bridge.CalibForce.ToString() : "50";
                 calibForceInput.onEndEdit.AddListener(OnCalibForceEdit);
+            }
+            if (standbyKInput)
+            {
+                standbyKInput.text = (bridge != null) ? bridge.StandbyK.ToString() : "1200";
+                standbyKInput.onEndEdit.AddListener(OnStandbyKEdit);
             }
             SetCommandButtonsInteractable();
 
