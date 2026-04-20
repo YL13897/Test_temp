@@ -7,8 +7,7 @@ public class ScoreManager : MonoBehaviour
     public static ScoreManager Instance { get; private set; }
 
     [Header("UI")]
-    [SerializeField] TextMeshProUGUI globalScoreText;
-    [SerializeField] TextMeshProUGUI sectionScoreText;
+    [SerializeField] TextMeshProUGUI ScoreText;
     [SerializeField] TextMeshProUGUI emgScoreText;
     [SerializeField] Slider sectionBar;
 
@@ -18,9 +17,9 @@ public class ScoreManager : MonoBehaviour
     public double EmgTimestamp { get; private set; }
     public string EmgDetails { get; private set; }
     public float HandleFx { get; private set; }
-    public float TrackCost { get; private set; }
-    public float ForceCost { get; private set; }
-    public float EmgCost { get; private set; }
+    public float WTrack { get; private set; }
+    public float WForce { get; private set; }
+    public float WEmg { get; private set; }
     public float TotalCost { get; private set; }
     public bool HasStartedScoring { get; private set; }
     public bool IsScorePaused { get; private set; }
@@ -34,8 +33,7 @@ public class ScoreManager : MonoBehaviour
         // Optional: persist across scene reloads
         // DontDestroyOnLoad(gameObject);
 
-        if (globalScoreText != null) globalScoreText.raycastTarget = false;
-        if (sectionScoreText != null) sectionScoreText.raycastTarget = false;
+        if (ScoreText != null) ScoreText.raycastTarget = false;
         if (emgScoreText != null) emgScoreText.raycastTarget = false;
 
         ResetAll();
@@ -82,12 +80,12 @@ public class ScoreManager : MonoBehaviour
         IsScorePaused = paused;
     }
 
-    public void SetCompositeMetrics(float handleFx, float trackCost, float forceCost, float emgCost, float totalCost)
+    public void SetCompositeMetrics(float handleFx, float wTrack, float wForce, float wEmg, float totalCost)
     {
         HandleFx = handleFx;
-        TrackCost = trackCost;
-        ForceCost = forceCost;
-        EmgCost = emgCost;
+        WTrack = wTrack;
+        WForce = wForce;
+        WEmg = wEmg;
         TotalCost = totalCost;
     }
 
@@ -153,9 +151,9 @@ public class ScoreManager : MonoBehaviour
     void ResetCompositeMetrics()
     {
         HandleFx = 0f;
-        TrackCost = 0f;
-        ForceCost = 0f;
-        EmgCost = 0f;
+        WTrack = 0f;
+        WForce = 0f;
+        WEmg = 0f;
         TotalCost = 0f;
     }
 
@@ -174,12 +172,10 @@ public class ScoreManager : MonoBehaviour
 
     void RefreshUI()
     {
-        if (globalScoreText != null)
-            globalScoreText.text = $"ToSc: {GlobalScore:0}";
-
-        if (sectionScoreText != null)
-            sectionScoreText.text = $"SeSc: {SectionScore:0} | Trk: {TrackCost:0.0} | Frc: {ForceCost:0.0} | EMG: {EmgCost:0.0} | Tot: {TotalCost:0.0}";
-
+        if (ScoreText != null)
+            // ScoreText.text = $"Score: Global: {GlobalScore:0} | Section: {SectionScore:0} | Track: {WTrack:0.00} | Force: {WForce:0.00} | Emg: {WEmg:0.00} | Total: {TotalCost:0.00}";
+            ScoreText.text = $"Score: Global: {GlobalScore:0} | Section: {SectionScore:0} | Track: {WTrack:0.00} | Force: {WForce:0.00} | Emg: {WEmg:0.00}";
+        
         if (emgScoreText != null)
             emgScoreText.text = string.IsNullOrEmpty(EmgDetails)
                 ? $"EMG: {EmgScore:0.00} | t: {EmgTimestamp:0.000}s"

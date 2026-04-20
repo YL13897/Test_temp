@@ -26,6 +26,10 @@ namespace CORC.Demo
         public M2WorldFollower worldFollower;
         public Transform roverTransform;
         public Rigidbody roverRigidbody;
+
+        [Header("Participant Calibration")]
+        public float CalibForce = 50f;
+
         public float m2CenterX = 0.32f; // The M2 handle X position that corresponds to the center reference (point A).
 
         public enum UnityDriveMode
@@ -359,6 +363,15 @@ namespace CORC.Demo
         #endregion
 
 
+        public void SetCalibForce(string value)
+        {
+            if (float.TryParse(value, out float parsed))
+            {
+                CalibForce = Mathf.Max(1.0f, parsed);
+                Debug.Log($"[M2RoverBridge] Participant CalibForce updated to: {CalibForce} N");
+            }
+        }
+
         // ----------------------------------------------------------------------------------------------------------------------
         // ------ Unity lifecycle methods ------
 
@@ -424,9 +437,9 @@ namespace CORC.Demo
                 .Append(xRover.ToString("F6")).Append(',')
                 .Append(xLeader.ToString("F6")).Append(',')
                 .Append(ScoreManager.Instance.HandleFx.ToString("F6")).Append(',')
-                .Append(ScoreManager.Instance.TrackCost.ToString("F6")).Append(',')
-                .Append(ScoreManager.Instance.ForceCost.ToString("F6")).Append(',')
-                .Append(ScoreManager.Instance.EmgCost.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.WTrack.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.WForce.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.WEmg.ToString("F6")).Append(',')
                 .Append(blockIndex).Append(',')
                 .Append(sectionIndex);
 
@@ -745,11 +758,15 @@ namespace CORC.Demo
             // Use the same Unity disturbance source u(t) for both local simulation and M2 signaling.
             bool state = ForceField.DisturbanceU > 0.5f;
             int direction = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentDirection : -1;
-            double disturbanceCmd = state ? (direction < 0 ? -1.0 : 1.0) : 0.0;
+            
+            // Send dynamic disturbance magnitude (-X or +X N) calculated from participant's CalibForce
+            CalibForce = Mathf.Clamp(CalibForce, 1.0f, 100.0f); // Ensure CalibForce is within a reasonable range to prevent extreme disturbance commands.
+            double disturbanceMagnitude = (double)(CalibForce * 0.4f);
+            double disturbanceCmd = state ? (direction < 0 ? -disturbanceMagnitude : disturbanceMagnitude) : 0.0;
 
             if (!hasSentDisturbanceState || state != lastDisturbanceState)
             {
-                m2.SendCmd("DSTR", new double[] { disturbanceCmd });
+                m2.SendCmd("DSTR", new double[] { disturbanceCmd }); // Send disturbance command to M2.
                 lastDisturbanceState = state;
                 hasSentDisturbanceState = true;
             }

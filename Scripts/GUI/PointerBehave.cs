@@ -26,8 +26,29 @@ public class PointerBehave : MonoBehaviour
         // if (pointerTransform == null || leaderTransform == null) return;
         float pointerX = pointerTransform.position.x;
         float leaderX = leaderTransform.position.x;
-        bool isAligned = Mathf.Abs(pointerX - leaderX) <= alignedHalfWidth;
-        Color targetColor = isAligned ? alignedColor : misalignedColor;
+        
+        // --- Previous Logic ---
+        // ------------------------------------------------------------------
+        // bool isAligned = Mathf.Abs(pointerX - leaderX) <= alignedHalfWidth;
+        // Color targetColor = isAligned ? alignedColor : misalignedColor;
+        // ------------------------------------------------------------------
+
+
+        // --- New Logic: Fade to lighter color (white) as it deviates ---
+        // ------------------------------------------------------------------
+        float deviation = Mathf.Abs(pointerX - leaderX);
+        float deviationRatio = Mathf.Clamp01(deviation / alignedHalfWidth);
+        
+        // Lerp from the aligned color towards white to make it lighter
+        Color targetColor = Color.Lerp(alignedColor, Color.white, deviationRatio);
+        
+        // Optionally snap to misaligned color if fully outside the band
+        if (deviation > alignedHalfWidth)
+        {
+            targetColor = misalignedColor;
+        }
+        // ------------------------------------------------------------------
+
         fillSpriteRenderer.color = targetColor;
     }
 }

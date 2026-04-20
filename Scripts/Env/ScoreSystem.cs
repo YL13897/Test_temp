@@ -14,9 +14,9 @@ public class ScoreSystem : MonoBehaviour
     public float penaltyValue = 500f;
 
     [Header("Composite Score Weights")]
-    [SerializeField] float w_tr = 0.1f;
-    [SerializeField] float w_u = 0.0001f;
-    [SerializeField] float w_emg = 2000f;
+    [SerializeField]  float w_tr = 1;
+    [SerializeField]  float w_u = 10f;
+    [SerializeField]  float w_emg = 2000f;
 
     [Header("Global Boundary")]
     public float minX = -4.5f;
@@ -66,22 +66,30 @@ public class ScoreSystem : MonoBehaviour
         if (boundaryContact)
         {   
             ScoreManager.Instance.TryApplyBoundaryPenalty(penaltyValue, penaltyCooldown);
-            return;
+            // Removed 'return;' so normal score keeps accumulating while on the boundary.
         }
 
         float xRover = targetRb.position.x;
         float xLeader = leaderRb.position.x;
         float xError = xLeader - xRover;
         float handleFx = GetHandleFx();
+        
+        // Normalize handle force against global participant calibration
+        float calibForce = bridge.CalibForce;
+        float relForce = handleFx / (0.1f * calibForce); // Assume operational force is around 10% of calibForce.
 
-        float trackCost = CappedWidthX * CappedWidthX - xError * xError; // <0 inside band, 0 at boundary, >0 outside band
-        float forceCost = handleFx * handleFx;
-        float emgCost = ScoreManager.Instance.EmgScore;
+        float trackCost = CappedWidthX * CappedWidthX - xError * xError; // >0 inside band (reward), <0 outside (penalty)
+        float forceCost = relForce * relForce; // penalty using normalized force
+        float emgCost = ScoreManager.Instance.EmgScore; // penalty
         
         float wTrack = w_tr * trackCost;
-        float wForce = w_u * forceCost;
-        float wEmg = w_emg * emgCost;
-        float totalCost = wTrack + wForce + wEmg;
+        float wForce = -w_u * forceCost;
+        float wEmg = -w_emg * emgCost;
+        
+        // Compute net reward: positive track score minus penalties for force and EMG
+        float totalCost = wTrack + wForce + wEmg; 
+        
+        // Ensure scoreAccumRate sign doesn't accidentally invert our positive reward logic
         float deltaScore = scoreAccumRate * totalCost * Time.fixedDeltaTime;
 
         ScoreManager.Instance.SetCompositeMetrics(handleFx, wTrack, wForce, wEmg, totalCost);

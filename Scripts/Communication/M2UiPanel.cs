@@ -37,6 +37,9 @@ namespace CORC.Demo
         public TMP_Dropdown hriModeDropdown;   // V1_HRI / V2_PHRI
         public TMP_Dropdown ctrlModeDropdown;  // V1_POS / V2_VEL
 
+        [Header("Inputs")]
+        public TMP_InputField calibForceInput; // Link to UI text field for participant calibration
+
         private IM2Proxy proxy;
         private const string SetHriCmd = "S_MD";
         private const string SetCtrlCmd = "S_CT";
@@ -406,6 +409,16 @@ namespace CORC.Demo
             RecordBtnInteract();
         }
 
+        private void OnCalibForceEdit(string value)
+        {
+            if (bridge != null)
+            {
+                bridge.SetCalibForce(value);
+                if (calibForceInput != null)
+                    calibForceInput.text = bridge.CalibForce.ToString(); // Sync actual applied value back to UI box just in case user typed "abc"
+            }
+        }
+
 
         // ---------------------------------------------------------------------------------------------
         // ---------------------------------- Unity Lifecycle ------------------------------------------
@@ -425,6 +438,12 @@ namespace CORC.Demo
             if (emergencyStopBtn) emergencyStopBtn.onClick.AddListener(OnEmergencyStop);
             if (startRecordingBtn) startRecordingBtn.onClick.AddListener(OnStartRecording);
             if (stopRecordingBtn) stopRecordingBtn.onClick.AddListener(OnStopRecording);
+            
+            if (calibForceInput)
+            {
+                calibForceInput.text = (bridge != null) ? bridge.CalibForce.ToString() : "50";
+                calibForceInput.onEndEdit.AddListener(OnCalibForceEdit);
+            }
             SetCommandButtonsInteractable();
 
             if (bridge == null)

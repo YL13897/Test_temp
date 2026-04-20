@@ -366,11 +366,11 @@ public class ExperimentBlockControl : MonoBehaviour
             }
             else if (CountdownActive)
             {
-                countdownText.text = $"Relax! Reset to center!\n Next block in {Mathf.CeilToInt(CountdownRemain)} s";
+                countdownText.text = $"Relax! Reset to centre!\n Next block in {Mathf.CeilToInt(CountdownRemain)} s";
             }
             else if (HasPreparedBlock && !blockRunning && autoPauseAtTime < 0f)
             {
-                countdownText.text = "Ready";
+                countdownText.text = "Ready!";
             }
             else
             {
