@@ -12,6 +12,7 @@ public class EMGScope : MonoBehaviour
     [SerializeField] private TMP_Text debugText;
     [SerializeField] private Canvas targetCanvas;
     [SerializeField] private RectTransform scopeRoot;
+    [SerializeField] private bool showScopePlots = true;
     [SerializeField] private bool autoScale = false;
     [SerializeField] private ScopeSignalMode signalMode = ScopeSignalMode.Filtered;
 
@@ -50,6 +51,9 @@ public class EMGScope : MonoBehaviour
 
     private void Update()
     {
+        if (!showScopePlots)
+            return;
+
         if (Time.unscaledTime < nextRefreshTime)
             return;
 
@@ -235,6 +239,9 @@ public class EMGScope : MonoBehaviour
     // TryInitializeScope(): Attempt to initialize the scope if not already initialized.
     private void InitializeScopeIfReady()
     {
+        if (!showScopePlots)
+            return;
+
         ResolveReferences();
         CacheActiveChannels();
         if (activeChannels.Length == 0)

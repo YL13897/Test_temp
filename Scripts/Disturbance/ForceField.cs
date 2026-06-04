@@ -11,8 +11,8 @@ public class ForceField : MonoBehaviour
     public static float DisturbanceDurationSec { get; private set; } = 0.4f;
     public static event Action OnFirstPlayerEnteredAnyField;
 
-    [SerializeField] ForceFieldPreview forceFieldPreview; 
-    
+    [SerializeField] ForceFieldPreview forceFieldPreview;
+
     [SerializeField]
     Rigidbody targetRb;
     [SerializeField]
@@ -25,7 +25,7 @@ public class ForceField : MonoBehaviour
     // IsActiveThisRun: Indicates whether this force field instance is active for the current player traversal, determined by sampling the trigger probability on entry.
     // get; -> Anyone can read the value
     // private set; Only this class can change the value
-    public bool IsActiveThisRun { get; private set; }  
+    public bool IsActiveThisRun { get; private set; }
     private bool playerInsideThisActiveField = false;
     private float disturbanceElapsedSec = 0f;
 
@@ -67,12 +67,12 @@ public class ForceField : MonoBehaviour
 
 
     // ------------------------------------------- Core Logic -----------------------------------
-    /* 
+    /*
     OnTriggerEnter() ensures that when player enters an active disturbance field, Unity disturbance source u(t) is enabled,
     and when the player exits, u(t) is disabled.
     */
 
-    // OnTriggerEnter(): Detects when the player enters the force field trigger, samples the disturbance state based on the defined probability, 
+    // OnTriggerEnter(): Detects when the player enters the force field trigger, samples the disturbance state based on the defined probability,
     // and updates the disturbance source u(t) accordingly.
     void OnTriggerEnter(Collider other)
     {
@@ -96,7 +96,7 @@ public class ForceField : MonoBehaviour
 
         // ----------------------- For testing: keep the field always active -----------------------
 
-        // IsActiveThisRun = true; 
+        // IsActiveThisRun = true;
 
         // -----------------------------------------------------------------------------------------
 
@@ -153,7 +153,7 @@ public class ForceField : MonoBehaviour
 
         int previewDirection = forceFieldPreview != null ? forceFieldPreview.CurrentDirection : 0;
         Vector3 dir = previewDirection < 0 ? Vector3.left : previewDirection > 0 ? Vector3.right : fixedDirection.normalized;
-        
+
         targetRb.AddForce(dir * (forceMagnitude * DisturbanceU), ForceMode.Force);
         // targetRb.MovePosition(targetRb.position + dir * speed * Time.fixedDeltaTime);
     }

@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using UnityEngine;
 
 public class LeaderHandler : MonoBehaviour
@@ -26,8 +25,6 @@ public class LeaderHandler : MonoBehaviour
     float rightX;
     float targetX;
     float moveDelayTimer;
-    readonly Queue<float> scheduledTargetQueue = new Queue<float>();
-    bool useScheduledTargets = false;
     Vector3 initialPosition;
     // Quaternion initialRotation;
 
@@ -101,30 +98,6 @@ public class LeaderHandler : MonoBehaviour
         if (isPaused) isDriving = false;
     }
 
-    // SetBlockLaneSequence(): Set a specific sequence of target X positions for the current block.
-    // If the sequence is null or empty, the leader will choose target lanes randomly for each block.
-    public void SetBlockLaneSequence(IReadOnlyList<float> targetSequence)
-    {
-        scheduledTargetQueue.Clear();
-
-        if (targetSequence == null || targetSequence.Count == 0)
-        {
-            useScheduledTargets = false;
-            return;
-        }
-
-        for (int i = 0; i < targetSequence.Count; i++)
-            scheduledTargetQueue.Enqueue(targetSequence[i]); // Enqueue the provided sequence of target X positions
-
-        useScheduledTargets = true;
-    }
-
-    public void ClearBlockLaneSequence()
-    {
-        scheduledTargetQueue.Clear();
-        useScheduledTargets = false;
-    }
-
     public void ResetForBlockStart()
     {
         transform.position = initialPosition;
@@ -140,9 +113,9 @@ public class LeaderHandler : MonoBehaviour
         targetX = initialPosition.x;
     }
 
-    public void TriggerNextScheduledShift()
+    public void SetTargetLane(float targetLaneX)
     {
-        SelectNextTargetX();
+        targetX = targetLaneX;
         moveDelayTimer = moveDelay;
     }
 
@@ -151,23 +124,6 @@ public class LeaderHandler : MonoBehaviour
         leftX = leftTargetX;
         centerX = centerTargetX;
         rightX = rightTargetX;
-    }
-
-    void SelectNextTargetX()
-    {
-        // If there are scheduled targets, use them in order.
-        if (useScheduledTargets && scheduledTargetQueue.Count > 0)
-        {
-            targetX = scheduledTargetQueue.Dequeue();
-            return;
-        }
-        
-        // If no scheduled targets, select randomly among the three lanes.
-        Debug.LogWarning("Not using scheduled leader position.");
-        float p = Random.value;
-        if (p < 1f / 3f) targetX = rightX;
-        else if (p < 2f / 3f) targetX = leftX;
-        else targetX = centerX;
     }
 
     void AutoSteerToTargetX()

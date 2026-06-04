@@ -119,7 +119,6 @@ namespace CORC.Demo
         [SerializeField] private float emgScoreDownsampleHz = 100f;
         [SerializeField] private EMGFilter emgFilter;
         private DelsysEMG delsysEMG = new DelsysEMG();
-        [SerializeField] private int emgRecordCount = 0; // To keep track of EMG recordings within the current block.
         private bool emgIsRecording = false;
         private bool scoreLogIsRecording = false;
 
@@ -145,6 +144,30 @@ namespace CORC.Demo
         }
 
         #region Private methods
+        private int GetCurrentBlockNumber()
+        {
+            if (ExperimentBlockControl.Instance != null && ExperimentBlockControl.Instance.CurrentBlockNumber > 0)
+                return ExperimentBlockControl.Instance.CurrentBlockNumber;
+
+            return 0; // Default to 0 if block number is not available
+        }
+
+        private string BuildBlockScopedEmgPath(string directory, string fileStem, string extension)
+        {
+            int blockNumber = GetCurrentBlockNumber();
+            string safeExtension = string.IsNullOrWhiteSpace(extension) ? ".csv" : extension;
+            string datedName = $"{fileStem}_{DateTime.Now:yyyyMMdd}_block{blockNumber}{safeExtension}";
+            string fullPath = Path.Combine(directory, datedName);
+
+            if (File.Exists(fullPath))
+            {
+                string dedupedName = $"{fileStem}_{DateTime.Now:yyyyMMdd}_block{blockNumber}_{DateTime.Now:HHmmss}{safeExtension}";
+                fullPath = Path.Combine(directory, dedupedName);
+            }
+
+            return fullPath;
+        }
+
         private string ConfigEMGFilePath()
         {
             if (!string.IsNullOrEmpty(emgSessionFilePath))
@@ -152,17 +175,21 @@ namespace CORC.Demo
 
             if (!string.IsNullOrWhiteSpace(emgPathOverride))
             {
-                emgSessionFilePath = emgPathOverride;
-                string overrideDir = Path.GetDirectoryName(emgSessionFilePath);
-                if (!string.IsNullOrEmpty(overrideDir))
-                    Directory.CreateDirectory(overrideDir);
+                string overrideDir = emgPathOverride;
+                if (Path.HasExtension(overrideDir))
+                    overrideDir = Path.GetDirectoryName(overrideDir);
+                if (string.IsNullOrWhiteSpace(overrideDir))
+                    overrideDir = Directory.GetCurrentDirectory();
+                emgSessionFilePath = BuildBlockScopedEmgPath(overrideDir, "EmgLogs", ".csv");
+                string resolvedDir = Path.GetDirectoryName(emgSessionFilePath);
+                if (!string.IsNullOrEmpty(resolvedDir))
+                    Directory.CreateDirectory(resolvedDir);
                 return emgSessionFilePath;
             }
 
             string emgDir = @"D:\yixianglin\Desktop\PHRI_Data"; // Default directory for EMG data.
             Directory.CreateDirectory(emgDir);
-            string fileName = $"EmgLogs_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
-            emgSessionFilePath = Path.Combine(emgDir, fileName);
+            emgSessionFilePath = BuildBlockScopedEmgPath(emgDir, "EmgLogs", ".csv");
             return emgSessionFilePath;
         }
 
@@ -212,7 +239,6 @@ namespace CORC.Demo
             string emgPath = ConfigEMGFilePath();
             delsysEMG.StartRecording(emgPath, Time.timeAsDouble);
             emgIsRecording = true;
-            emgRecordCount++;
             return true;
         }
 
@@ -528,6 +554,7 @@ namespace CORC.Demo
                 if (!isPaused) isDriving = true;
                 worldFollower?.ResetBias();
 
+                emgSessionFilePath = null;
                 StartAuxRecordingManual();
 
                 if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(false);
@@ -538,6 +565,7 @@ namespace CORC.Demo
         public void NotifyBlockEnd()
         {
             StopAuxRecordingManual();
+            emgSessionFilePath = null;
 
             blockActive = false;
             syncRefReady = false;
@@ -622,7 +650,7 @@ namespace CORC.Demo
             lastDisturbanceState = false;
             isPaused = false;
             isDriving = false;
-            emgRecordCount = 0;
+            emgSessionFilePath = null;
 
             ResetRoverToInitialPose();
             ApplyRoverSteer(0f);

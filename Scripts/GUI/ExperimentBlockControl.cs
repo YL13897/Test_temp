@@ -62,6 +62,7 @@ public class ExperimentBlockControl : MonoBehaviour
     bool waitingForReturnAck = false;
     bool receivedReturnAck = false;
     int pendingStartSectionOffset = 0; // Used for resuming within a block.
+    bool hasActiveSection = false;
     readonly List<SectionSpec> currentBlockSections = new List<SectionSpec>();
     
 
@@ -84,15 +85,15 @@ public class ExperimentBlockControl : MonoBehaviour
         get
         {
             if (!HasPreparedBlock) return 0;
-            if (blockRunning)
-                return Mathf.Clamp(sectionInBlock, 1, SectionsPerBlock);
-            return Mathf.Clamp(sectionInBlock + 1, 1, SectionsPerBlock);
+            if (hasActiveSection)
+                return Mathf.Clamp(sectionInBlock + 1, 1, SectionsPerBlock);
+            return Mathf.Clamp(sectionInBlock + 2, 1, SectionsPerBlock);
         }
     }
     public bool ShouldAutoPauseNow => autoPauseAtTime >= 0f && autoPauseAtTime != AutoPauseRequested && Time.time >= autoPauseAtTime;
     public bool CountdownActive => nextBlockStartAt >= 0f && Time.time < nextBlockStartAt;
     public float CountdownRemain => CountdownActive ? nextBlockStartAt - Time.time : 0f;
-    public int CurrentDirection => GetUpcomingSectionSpec().previewDirection;
+    public int CurrentDirection => GetCurrentOrUpcomingSectionSpec().previewDirection;
     
     int SectionsPerBlock 
     {
@@ -129,12 +130,13 @@ public class ExperimentBlockControl : MonoBehaviour
     {
         currentBlockIndex = Mathf.Clamp(startBlockIdx - 1, 0, blockProbabilities.Length - 1);
         pendingStartSectionOffset = Mathf.Clamp(startSectionIdx - 1, 0, SectionsPerBlock - 1);
-        sectionInBlock = pendingStartSectionOffset;
+        sectionInBlock = pendingStartSectionOffset - 1;
         blockRunning = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
         waitingForReturnAck = false;
         receivedReturnAck = false;
+        hasActiveSection = false;
         PrepareCurrentBlock();
     }
 
@@ -142,14 +144,14 @@ public class ExperimentBlockControl : MonoBehaviour
     public void ResetRoundState()
     {
         currentBlockIndex = -1;
-        sectionInBlock = 0;
+        sectionInBlock = -1;
         pendingStartSectionOffset = 0;
         blockRunning = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
         waitingForReturnAck = false;
         receivedReturnAck = false;
-        leader.ClearBlockLaneSequence();
+        hasActiveSection = false;
         currentBlockSections.Clear();
         RefreshUi();
     }
@@ -162,12 +164,13 @@ public class ExperimentBlockControl : MonoBehaviour
         if (!HasPreparedBlock) return;
 
         pendingStartSectionOffset = 0;
-        sectionInBlock = 0;
+        sectionInBlock = -1;
         blockRunning = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
         waitingForReturnAck = false;
         receivedReturnAck = false;
+        hasActiveSection = false;
         PrepareCurrentBlock();
     }
 
@@ -188,6 +191,7 @@ public class ExperimentBlockControl : MonoBehaviour
         nextBlockStartAt = -1f;
         waitingForReturnAck = false;
         receivedReturnAck = false;
+        hasActiveSection = false;
         RefreshUi();
     }
 
@@ -246,7 +250,6 @@ public class ExperimentBlockControl : MonoBehaviour
         currentBlockIndex = blockProbabilities.Length;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
-        leader.ClearBlockLaneSequence();
         RefreshUi();
         return false;
     }
@@ -257,48 +260,39 @@ public class ExperimentBlockControl : MonoBehaviour
         if (!HasPreparedBlock) return;
 
         BuildCurrentBlockSections();
-        int startOffset = pendingStartSectionOffset;
         pendingStartSectionOffset = 0;
-        sectionInBlock = startOffset;
+        sectionInBlock = pendingStartSectionOffset - 1;
         blockRunning = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
         waitingForReturnAck = false;
         receivedReturnAck = false;
-        leader.SetBlockLaneSequence(BuildLaneSequence(startOffset));
+        hasActiveSection = false;
         RefreshUi();
     }
 
     void StartNextSection()
     {
-        if (sectionInBlock >= SectionsPerBlock)
+        int nextSectionIndex = sectionInBlock + 1;
+        if (nextSectionIndex >= SectionsPerBlock)
         {
             CompleteCurrentBlock();
             return; // Prevent incrementing past the max sections
         }
 
-        leader?.TriggerNextScheduledShift();
-        sectionInBlock++;
+        sectionInBlock = nextSectionIndex;
+        hasActiveSection = true;
+        leader?.SetTargetLane(GetSectionSpecAtBlockIndex(sectionInBlock).leaderTargetX);
         RefreshUi();
     }
 
     void CompleteCurrentBlock()
     {
         blockRunning = false;
+        hasActiveSection = false;
         autoPauseAtTime = Time.time + recoverySecondsClamped;
         nextBlockStartAt = Time.time + Mathf.Max(0f, countdownSeconds);
         RefreshUi();
-    }
-
-    // BuildLaneSequence(): Helper function to construct the lane sequence for the current block.
-    // Returns an array of target X positions for each section in the block.
-    float[] BuildLaneSequence(int startOffset = 0)
-    {
-        List<float> sequence = new List<float>(SectionsPerBlock - startOffset);
-        for (int i = startOffset; i < SectionsPerBlock; i++)
-            sequence.Add(GetSectionSpecAtBlockIndex(i).leaderTargetX);
-
-        return sequence.ToArray();
     }
 
     void BuildCurrentBlockSections()
@@ -325,9 +319,10 @@ public class ExperimentBlockControl : MonoBehaviour
         }
     }
 
-    SectionSpec GetUpcomingSectionSpec()
+    SectionSpec GetCurrentOrUpcomingSectionSpec()
     {
-        return GetSectionSpecAtBlockIndex(sectionInBlock);
+        int sectionIndex = hasActiveSection ? sectionInBlock : sectionInBlock + 1;
+        return GetSectionSpecAtBlockIndex(sectionIndex);
     }
 
     SectionSpec GetSectionSpecAtBlockIndex(int blockIndex)
@@ -352,8 +347,8 @@ public class ExperimentBlockControl : MonoBehaviour
             }
             else
             {
-                bool sectionStarted = ScoreManager.Instance != null && ScoreManager.Instance.HasStartedScoring;
-                int displaySection = sectionStarted ? sectionInBlock : sectionInBlock + 1;
+                int displaySection = hasActiveSection ? sectionInBlock + 1 : sectionInBlock + 2;
+                displaySection = Mathf.Clamp(displaySection, 1, SectionsPerBlock);
                 sectionIndexText.text = $"Block: {CurrentBlockNumber}/{blockProbabilities.Length} | Section: {displaySection}/{SectionsPerBlock}";
             }
         }
