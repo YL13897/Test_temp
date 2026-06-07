@@ -995,7 +995,6 @@ namespace CORC.Demo
                 ScoreManager.Instance.SetScorePaused(isPaused || (unityMode == UnityDriveMode.Mode2_M2 && !blockActive));
 
             UpdateEmgScorePreview();
-            WriteScoreLogRow();
 
         }    
 
@@ -1035,6 +1034,7 @@ namespace CORC.Demo
                 if (ctrl == 1) // POS mode
                 {
                     PosMode(handleX);
+                    WriteScoreLogRow();
                     return;
                 }
 
@@ -1043,6 +1043,7 @@ namespace CORC.Demo
                     ApplyForcedVelParamsIfEnabled(); 
                     float handleXRel = ComputeVelHandleXRel(handleX);
                     VelMode(handleXRel);
+                    WriteScoreLogRow();
                     return;
                 }
             }
