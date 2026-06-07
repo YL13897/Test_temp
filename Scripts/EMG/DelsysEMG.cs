@@ -12,8 +12,8 @@ using System.Threading;
 // Debug
 using UnityEngine;
 
-// DelsysEMG: A Unity component that manages the connection to a Delsys EMG system, handles data acquisition in a background thread, 
-//            processes EMG signals using an optional EMGFilter, and supports recording to CSV files with proper synchronization.
+// DelsysEMG: A Unity component that manages the connection to a Delsys EMG system, handles data acquisition in a background thread,
+//            processes EMG signals using an optional EMGFilter, and records processed frames through EmgRecordWriter.
 
 public class DelsysEMG
 {
@@ -74,11 +74,10 @@ public class DelsysEMG
     
 
 
-    private StreamWriter recordingWriter;
+    private readonly EmgRecordWriter recordingWriter = new EmgRecordWriter();
     private long recordingSampleCount = 0;
-    private int recordingFlushCounter = 0;
-    private const int RecordingFlushInterval = 128;
-    private double recordingBridgeStartTime = double.NaN;
+    private double recordingStartT = double.NaN;
+    private int recordingSec = 0;
 
     //Reset local state, clear data lists, and reset status flags
     private void ResetLocalState()
@@ -109,27 +108,10 @@ public class DelsysEMG
         {
             recording = false;
             recordingSampleCount = 0;
-            recordingFlushCounter = 0;
-            recordingBridgeStartTime = double.NaN;
-
-            if (recordingWriter == null) return;
-
-            try { recordingWriter.Flush(); } catch { }
-            try { recordingWriter.Dispose(); } catch { }
-            recordingWriter = null;
+            recordingStartT = double.NaN;
+            recordingSec = 0;
+            recordingWriter.Close();
         }
-    }
-
-    private string BuildRecordingHeader()
-    {
-        StringBuilder header = new StringBuilder("t");
-        string prefix = GetSignalLabel();
-        for (int i = 0; i < 16; i++)
-        {
-            if (_sensors[i] == SensorTypes.SensorTrignoImu || _sensors[i] == SensorTypes.SensorTrigno)
-                header.Append(',').Append(prefix).Append("_ch").Append(i + 1);
-        }
-        return header.ToString();
     }
 
     private string GetSignalLabel()
@@ -152,29 +134,21 @@ public class DelsysEMG
     {
         lock (recordingLock)
         {
-            if (!recording || recordingWriter == null) return;
+            if (!recording) return;
 
-            StringBuilder line = new StringBuilder(128);
-            double t = double.IsNaN(recordingBridgeStartTime)
+            double t = double.IsNaN(recordingStartT)
                 ? recordingSampleCount * samplingInterval
-                : recordingBridgeStartTime + recordingSampleCount * samplingInterval;
-            line.Append(t);
-
-            for (int i = 0; i < 16; i++)
-            {
-                if (_sensors[i] == SensorTypes.SensorTrignoImu || _sensors[i] == SensorTypes.SensorTrigno)
-                    line.Append(',').Append(frame[i]);
-            }
-
-            recordingWriter.WriteLine(line.ToString());
+                : recordingStartT + recordingSampleCount * samplingInterval;
+            recordingWriter.WriteFrame(t, recordingSec, frame);
             recordingSampleCount++;
-            recordingFlushCounter++;
+        }
+    }
 
-            if (recordingFlushCounter >= RecordingFlushInterval)
-            {
-                recordingWriter.Flush();
-                recordingFlushCounter = 0;
-            }
+    public void SetSec(int sec)
+    {
+        lock (recordingLock)
+        {
+            recordingSec = sec;
         }
     }
 
@@ -364,33 +338,27 @@ public class DelsysEMG
     }
 
 
-    //Start log to csv
-    public void StartRecording(String filename, double bridgeStartTime = double.NaN)
+    //Start recording to the selected output format
+    public void StartRecording(string filename, double startT = double.NaN, int sec = 0, EmgRecordFormat format = EmgRecordFormat.Hdf5)
     {
         string dir = Path.GetDirectoryName(filename);
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
-        bool append = File.Exists(filename) && new FileInfo(filename).Length > 0;
-        StreamWriter writer = new StreamWriter(filename, append, Encoding.ASCII);
-        if (!append)
-            writer.WriteLine(BuildRecordingHeader());
-        writer.Flush();
-
         lock (recordingLock) // ensure we don't have a race condition where we start a new recording while the old one is still being finalized
         {
             CloseRecordingWriter();
-            recordingWriter = writer;
             recordingSampleCount = 0;
-            recordingFlushCounter = 0;
-            recordingBridgeStartTime = bridgeStartTime;
+            recordingStartT = startT;
+            recordingSec = sec;
+            recordingWriter.Open(filename, format, GetSignalLabel(), GetChannelsActiveSensor(), samplingInterval);
             recording = true;
         }
 
         Debug.Log("Delsys-> Recording...");
     }
 
-    //Stop log to csv and output file
+    //Stop recording and close output file
     public void StopRecording()
     {
         if (!connected)

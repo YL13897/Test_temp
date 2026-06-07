@@ -115,6 +115,7 @@ namespace CORC.Demo
         [SerializeField] private string emgPathOverride = "";
         [SerializeField] private bool scoreLogRecordFlag = true;
         [SerializeField] private string scoreLogPathOverride = "";
+        [SerializeField] private EmgRecordFormat emgRecordFormat = EmgRecordFormat.Hdf5;
         [SerializeField] private EMGFilter.EmgSignalView emgSignalMode = EMGFilter.EmgSignalView.Envelope;
         [SerializeField] private float emgScoreDownsampleHz = 100f;
         [SerializeField] private EMGFilter emgFilter;
@@ -137,6 +138,9 @@ namespace CORC.Demo
         private StreamWriter scoreLogWriter;
         private int scoreLogFlushInterval = 200;
         private int scoreLogRowsSinceFlush = 0;
+        private double t0 = -1.0;
+        private int sec = 0;
+        private bool recStarted = false;
 
         private void ApplyEmgRuntimeSettings()
         {
@@ -168,6 +172,11 @@ namespace CORC.Demo
             return fullPath;
         }
 
+        private string GetEmgRecordExtension()
+        {
+            return emgRecordFormat == EmgRecordFormat.Csv ? ".csv" : ".h5";
+        }
+
         private string ConfigEMGFilePath()
         {
             if (!string.IsNullOrEmpty(emgSessionFilePath))
@@ -180,7 +189,7 @@ namespace CORC.Demo
                     overrideDir = Path.GetDirectoryName(overrideDir);
                 if (string.IsNullOrWhiteSpace(overrideDir))
                     overrideDir = Directory.GetCurrentDirectory();
-                emgSessionFilePath = BuildBlockScopedEmgPath(overrideDir, "EmgLogs", ".csv");
+                emgSessionFilePath = BuildBlockScopedEmgPath(overrideDir, "EmgLogs", GetEmgRecordExtension());
                 string resolvedDir = Path.GetDirectoryName(emgSessionFilePath);
                 if (!string.IsNullOrEmpty(resolvedDir))
                     Directory.CreateDirectory(resolvedDir);
@@ -189,7 +198,7 @@ namespace CORC.Demo
 
             string emgDir = @"D:\yixianglin\Desktop\PHRI_Data"; // Default directory for EMG data.
             Directory.CreateDirectory(emgDir);
-            emgSessionFilePath = BuildBlockScopedEmgPath(emgDir, "EmgLogs", ".csv");
+            emgSessionFilePath = BuildBlockScopedEmgPath(emgDir, "EmgLogs", GetEmgRecordExtension());
             return emgSessionFilePath;
         }
 
@@ -232,12 +241,21 @@ namespace CORC.Demo
         public bool AnyRecordingActive => emgIsRecording || scoreLogIsRecording;
         public int[] GetActiveEmgChannels() => delsysEMG.GetChannelsActiveSensor();
 
+        private double GetGlobalT()
+        {
+            double now = Time.timeAsDouble;
+            if (t0 < 0.0) t0 = now;
+            return now - t0;
+        }
+
         private bool TryStartEmgRecording()
         {
             if (!emgRecordFlag || !IsEmgReady() || emgIsRecording) return false;
 
             string emgPath = ConfigEMGFilePath();
-            delsysEMG.StartRecording(emgPath, Time.timeAsDouble);
+            sec = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentSectionNumber : 0;
+            double startT = GetGlobalT();
+            delsysEMG.StartRecording(emgPath, startT, sec, emgRecordFormat);
             emgIsRecording = true;
             return true;
         }
@@ -265,7 +283,7 @@ namespace CORC.Demo
                 scoreLogRowsSinceFlush = 0;
                 if (!append)
                 {
-                    scoreLogWriter.WriteLine("t,x_rover,x_leader,handle_fx,track_cost,force_cost,emg_cost,block_index,section_index");
+                    scoreLogWriter.WriteLine("global_t,x_rover,x_leader,handle_fx,track_cost,force_cost,emg_cost,block_index,section_index");
                     scoreLogWriter.Flush();
                 }
             }
@@ -471,9 +489,10 @@ namespace CORC.Demo
             float xLeader = leader != null ? leader.transform.position.x : 0f;
             int blockIndex = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentBlockNumber : 0;
             int sectionIndex = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentSectionNumber : 0;
+            double globalT = GetGlobalT();
 
             StringBuilder line = new StringBuilder(160);
-            line.Append(Time.timeAsDouble.ToString("F6")).Append(',')
+            line.Append(globalT.ToString("F6")).Append(',')
                 .Append(xRover.ToString("F6")).Append(',')
                 .Append(xLeader.ToString("F6")).Append(',')
                 .Append(ScoreManager.Instance.HandleFx.ToString("F6")).Append(',')
@@ -553,9 +572,9 @@ namespace CORC.Demo
                 syncRefReady = false; 
                 if (!isPaused) isDriving = true;
                 worldFollower?.ResetBias();
+                recStarted = false;
 
                 emgSessionFilePath = null;
-                StartAuxRecordingManual();
 
                 if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(false);
             }
@@ -566,6 +585,7 @@ namespace CORC.Demo
         {
             StopAuxRecordingManual();
             emgSessionFilePath = null;
+            recStarted = false;
 
             blockActive = false;
             syncRefReady = false;
@@ -928,6 +948,15 @@ namespace CORC.Demo
 
             if (unityMode == UnityDriveMode.Mode2_M2 && blockActive)
                 TrySendDisturbanceStateToM2();
+
+            bool hasSection = ExperimentBlockControl.Instance != null && ExperimentBlockControl.Instance.HasActiveSection;
+            sec = hasSection && ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentSectionNumber : 0;
+            delsysEMG.SetSec(sec);
+            if (unityMode == UnityDriveMode.Mode2_M2 && blockActive && !recStarted && hasSection)
+            {
+                StartAuxRecordingManual();
+                recStarted = true;
+            }
 
             if (enableHotkeys)
             {

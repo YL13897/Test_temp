@@ -79,6 +79,7 @@ public class ExperimentBlockControl : MonoBehaviour
 
     public bool HasPreparedBlock => currentBlockIndex >= 0 && currentBlockIndex < blockProbabilities.Length;
     public bool IsRoundComplete => currentBlockIndex >= blockProbabilities.Length;
+    public bool HasActiveSection => hasActiveSection;
     public int CurrentBlockNumber => HasPreparedBlock ? currentBlockIndex + 1 : 0;
     public int CurrentSectionNumber
     {

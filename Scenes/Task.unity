@@ -2852,6 +2852,7 @@ MonoBehaviour:
   emgPathOverride: 
   scoreLogRecordFlag: 1
   scoreLogPathOverride: 
+  emgRecordFormat: 1
   emgSignalMode: 3
   emgScoreDownsampleHz: 100
   emgFilter: {fileID: 1910340486}
@@ -9658,6 +9659,7 @@ GameObject:
   - component: {fileID: 1987703636}
   - component: {fileID: 1987703635}
   - component: {fileID: 1987703634}
+  - component: {fileID: 1987703637}
   m_Layer: 5
   m_Name: EMGScopeCanvas
   m_TagString: Untagged
@@ -9750,6 +9752,18 @@ Canvas:
   m_SortingLayerID: 0
   m_SortingOrder: 0
   m_TargetDisplay: 1
+--- !u!114 &1987703637
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1987703632}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9033a4183bd0a384b85d1c46fa124df3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Hdf5LoadTester
 --- !u!1 &2008688939
 GameObject:
   m_ObjectHideFlags: 0
