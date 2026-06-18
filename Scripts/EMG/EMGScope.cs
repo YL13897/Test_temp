@@ -1,5 +1,3 @@
-using System.Text;
-using TMPro;
 using UnityEngine;
 using CORC.Demo;
 
@@ -9,12 +7,10 @@ public class EMGScope : MonoBehaviour
 {
     [SerializeField] private EMGFilter emgFilter;
     [SerializeField] private M2RoverBridge emgBridge;
-    [SerializeField] private TMP_Text debugText;
     [SerializeField] private Canvas targetCanvas;
     [SerializeField] private RectTransform scopeRoot;
     [SerializeField] private bool showScopePlots = true;
     [SerializeField] private bool autoScale = false;
-    [SerializeField] private ScopeSignalMode signalMode = ScopeSignalMode.Filtered;
 
     private int visibleSamples = 512;
     private float refreshHz = 15f;
@@ -29,7 +25,6 @@ public class EMGScope : MonoBehaviour
     private float[][] displayBuffers;
     private EMGScopeUIRenderer[] scopeRenderers;
     private float nextRefreshTime;
-    private readonly StringBuilder debugBuilder = new StringBuilder(512);
     private int[] activeChannels = System.Array.Empty<int>();
     private bool scopeInitialized;
 
@@ -61,36 +56,27 @@ public class EMGScope : MonoBehaviour
 
         if (emgFilter == null)
         {
-            if (debugText != null)
-                debugText.text = "EMGScope: EMGFilter not found";
             return;
         }
 
         if (!scopeInitialized)
         {
-            if (debugText != null)
-                debugText.text = activeChannels.Length == 0
-                    ? "EMGScope: no active sensors yet"
-                    : "EMGScope: scope initialization failed";
             return;
         }
 
         int channelCount = activeChannels.Length;
-        debugBuilder.Clear();
 
         for (int i = 0; i < channelCount; i++)
         {
             EMGScopeUIRenderer renderer = scopeRenderers[i];
             int sensorId = activeChannels[i];
             int filterChannel = Mathf.Clamp(sensorId - 1, 0, emgFilter.ChannelCount - 1);
-            string channelLabel = "S" + sensorId.ToString("D2");
 
             float[] buffer = displayBuffers[i];
             int count = emgFilter.CopyHistory(GetSignalView(), filterChannel, buffer);
             if (count <= 1)
             {
                 renderer.Clear();
-                AppendDebugLine(channelLabel, 0f, 0f);
                 continue;
             }
 
@@ -99,13 +85,7 @@ public class EMGScope : MonoBehaviour
                 ? ComputeScaleFromRange(maxAbs)
                 : ComputeScaleFromRange(Mathf.Max(manualRange, minAutoRange));
             renderer.Render(buffer, count, yScale);
-
-            float lastValue = buffer[count - 1];
-            AppendDebugLine(channelLabel, lastValue, maxAbs);
         }
-
-        if (debugText != null)
-            debugText.text = debugBuilder.ToString();
     }
 
 
@@ -200,39 +180,12 @@ public class EMGScope : MonoBehaviour
         activeChannels = channels != null ? channels : System.Array.Empty<int>();
     }
 
-
-    // AppendDebugLine(): Helper to append a formatted line of debug text for a given channel, including the latest value and peak value.
-    private void AppendDebugLine(string channelLabel, float lastValue, float peakValue)
-    {
-        if (debugBuilder.Length > 0)
-            debugBuilder.Append('\n');
-
-        debugBuilder.Append(channelLabel);
-
-        debugBuilder.Append(" | last=").Append(lastValue.ToString("0.000000"))
-            .Append(" | peak=").Append(peakValue.ToString("0.000000"));
-    }
-
     private EMGFilter.EmgSignalView GetSignalView()
     {
-        if (signalMode == ScopeSignalMode.Raw)
-            return EMGFilter.EmgSignalView.Raw;
+        if (emgBridge != null)
+            return emgBridge.EmgSignalMode;
 
-        if (signalMode == ScopeSignalMode.FilteredRectified)
-            return EMGFilter.EmgSignalView.Rectified;
-
-        if (signalMode == ScopeSignalMode.Envelope)
-            return EMGFilter.EmgSignalView.Envelope;
-
-        return EMGFilter.EmgSignalView.Filtered;
-    }
-
-    private enum ScopeSignalMode
-    {
-        Raw = 0,
-        Filtered = 1,
-        FilteredRectified = 2,
-        Envelope = 3
+        return EMGFilter.EmgSignalView.Envelope;
     }
 
 

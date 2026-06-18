@@ -29,7 +29,7 @@ namespace CORC
                     ["X"] = new double[2], // X: M2 end-effector position (m)
                     ["dX"] = new double[2], // dX: M2 end-effector velocity (m/s)
                     // ["F"] = new double[2] // F: M2 end-effector interaction force (N)
-                    ["F"] = new double[2] // F: M2 end-effector force streamed from etInteractionForce() (N)
+                    ["F"] = new double[2] // F: M2 force streamed from etInteractionForce() (N)
                 };
                 State.Init(new string[] { "t", "X", "dX", "F" });
                 Initialised = true;

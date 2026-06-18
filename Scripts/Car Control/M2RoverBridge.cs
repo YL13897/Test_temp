@@ -24,12 +24,16 @@ namespace CORC.Demo
         public RoverHandler rover;
         public LeaderHandler leader;
         public M2WorldFollower worldFollower;
+        public InteractionEstimator estimator;
         public Transform roverTransform;
         public Rigidbody roverRigidbody;
 
         [Header("Participant Calibration")]
         public float CalibForce = 50f;
         public float StandbyK = 1200f;
+        public float[] EmgRest = Array.Empty<float>();
+        public float[] EmgBracing = Array.Empty<float>();
+        public float[] EmgRef = Array.Empty<float>();
 
         public float m2CenterX = 0.32f; // The M2 handle X position that corresponds to the center reference (point A).
 
@@ -46,10 +50,6 @@ namespace CORC.Demo
         public int hriModeCode = 2;
         [Tooltip("1=V1_POS, 2=V2_VEL")]
         public int ctrlModeCode = 1;
-
-        [Header("POS mode (handle offset -> steer)")]
-        float handleXDeadZone = 0.005f;
-        public float handleXToSteer = 5.0f; // steering command per meter of handle offset in POS mode
 
         [Header("M2 VEL mode (open-loop damped steer)")]
         public float velHandleXDeadZone = 0.01f;
@@ -115,7 +115,7 @@ namespace CORC.Demo
         [SerializeField] private string emgPathOverride = "";
         [SerializeField] private bool scoreLogRecordFlag = true;
         [SerializeField] private string scoreLogPathOverride = "";
-        [SerializeField] private EmgRecordFormat emgRecordFormat = EmgRecordFormat.Hdf5;
+        [SerializeField] private EmgRecordFormat emgRecordFormat = EmgRecordFormat.Csv;
         [SerializeField] private EMGFilter.EmgSignalView emgSignalMode = EMGFilter.EmgSignalView.Envelope;
         [SerializeField] private float emgScoreDownsampleHz = 100f;
         [SerializeField] private EMGFilter emgFilter;
@@ -126,12 +126,23 @@ namespace CORC.Demo
         [Header("EMG Channel Preview")]
         [SerializeField] private int emgPreviewMaxChannels = 8;
         [SerializeField] private float emgPreviewHz = 10f;
+        [SerializeField] private int cc11Channel = 1;
+        [SerializeField] private int cc12Channel = 2;
+        [SerializeField] private int cc21Channel = 3;
+        [SerializeField] private int cc22Channel = 4;
+        [SerializeField] private int cc31Channel = 5;
+        [SerializeField] private int cc32Channel = 6;
+        [SerializeField] private float stiffnessMin = 10f;
+        [SerializeField] private float stiffnessMax = 100f;
+        [SerializeField] [TextArea] private string activeEmgChannelsText = "";
         private TMP_Text emgScoreText;
-        private float emgScoreScale = 1000f;
+        private float emgSpi = 0f; // SPI: Stiffness proxy index
+        private float emgEffortScore = 0f;
+        private float stiffnessCmd = 0f;
         // private float emgScoreEmaLerp = 0.15f; // Smoothing factor for exponential moving average of EMG score, between 0 (no update) and 1 (no smoothing).
-        private float emgScoreFiltered = 0f;
-        private double emgScoreTimestamp = 0.0;
-        private bool emgShutdown = false;
+        private double emgScoreTimestamp = 0.0; // Timestamp of the latest EMG score update, used for display and potential synchronization purposes.
+        private bool emgShutdown = false; // Flag to indicate whether EMG has been shut down, to prevent multiple shutdown attempts.
+        private bool hasEmgFrame = false; // Whether we have received at least one frame of EMG data, used to determine if EMG preview can be shown in the UI.
         private double nextEmgUpdateTime = 0.0; // To control the update rate of EMG preview in the UI, we track the next allowed update time based on the specified preview Hz rate.
         private string emgSessionFilePath;
         private string scoreLogSessionFilePath;
@@ -233,13 +244,141 @@ namespace CORC.Demo
             return ScoreManager.Instance != null;
         }
 
+        public bool IsM2Connected()
+        {
+            return m2 != null && m2.IsInitialised() && m2.Client != null && m2.Client.IsConnected();
+        }
+
+        public bool TryGetM2Sample(out double time, out double[] position, out double[] force)
+        {
+            time = 0.0;
+            position = new double[2];
+            force = new double[2];
+
+            if (!IsM2Connected())
+                return false;
+
+            if (m2.State == null)
+                return false;
+
+            var t = m2.State["t"];
+            var x = m2.State["X"];
+            var f = m2.State["F"];
+            if (t == null || x == null || f == null || t.Length < 1 || x.Length < 2 || f.Length < 2)
+                return false;
+
+            time = t[0];
+            position[0] = x[0];
+            position[1] = x[1];
+            force[0] = f[0];
+            force[1] = f[1];
+            return true;
+        }
+
+        public float[] GetCurrentEmgData()
+        {
+            if (!delsysEnable || !delsysEMG.IsConnected() || !delsysEMG.IsRunning())
+                return Array.Empty<float>();
+
+            return delsysEMG.GetSelectedEMGData();
+        }
+
+        public float[] GetScoreEnvelopeData()
+        {
+            if (!delsysEnable || !delsysEMG.IsConnected() || !delsysEMG.IsRunning())
+                return Array.Empty<float>();
+
+            return delsysEMG.GetScoreEnvelopeData();
+        }
+
+        public void FillConfiguredEmgChannels(int[] map)
+        {
+            if (map == null) return;
+            if (map.Length > 0) map[0] = cc11Channel;
+            if (map.Length > 1) map[1] = cc12Channel;
+            if (map.Length > 2) map[2] = cc21Channel;
+            if (map.Length > 3) map[3] = cc22Channel;
+            if (map.Length > 4) map[4] = cc31Channel;
+            if (map.Length > 5) map[5] = cc32Channel;
+        }
+
+        public bool TryGetScoreEmg(float[] values, int[] map, out double t, out long seq)
+        {
+            t = 0.0;
+            seq = 0;
+            if (values == null || map == null)
+                return false;
+
+            FillConfiguredEmgChannels(map);
+            if (!delsysEnable || !delsysEMG.IsConnected() || !delsysEMG.IsRunning())
+                return false;
+            return delsysEMG.CopyScoreEnvelope(values, map, out t, out seq);
+        }
+
+        public bool TryGetInteractionForceX(out float fx)
+        {
+            fx = 0f;
+            if (m2 == null) return false;
+            if (!m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return false;
+            if (m2.State == null || m2.State["F"] == null || m2.State["F"].Length < 1) return false;
+            fx = (float)m2.State["F"][0];
+            return !float.IsNaN(fx) && !float.IsInfinity(fx);
+        }
+
         public bool EmgRecordFlag => emgRecordFlag;
         public bool EmgIsRecording => emgIsRecording;
         public bool ScoreLogRecordFlag => scoreLogRecordFlag;
         public bool ScoreLogIsRecording => scoreLogIsRecording;
         public bool CanStartAnyRecording => (emgRecordFlag && IsEmgReady() && !emgIsRecording) || (scoreLogRecordFlag && IsScoreLogReady() && !scoreLogIsRecording);
         public bool AnyRecordingActive => emgIsRecording || scoreLogIsRecording;
+        public bool IsTrialLoggingActive => unityMode == UnityDriveMode.Mode2_M2 && blockActive &&
+            ExperimentBlockControl.Instance != null && ExperimentBlockControl.Instance.HasActiveSection;
+        public EMGFilter.EmgSignalView EmgSignalMode => emgSignalMode;
+        public float EmgSpi => estimator != null ? estimator.Spi : emgSpi;
+        public float EmgEffortScore => estimator != null ? estimator.EmgScore : emgEffortScore;
+        public float StiffnessCmd => estimator != null ? estimator.StiffnessCmd : stiffnessCmd;
+        public float StiffnessMin => stiffnessMin;
+        public float StiffnessMax => stiffnessMax;
+        public bool HasEmgFrame => hasEmgFrame;
+        public bool HasValidForceProxy => estimator != null && estimator.HasValidForceProxy;
+        public bool HasValidSpi => estimator != null && estimator.HasValidSpi;
+        public string ActiveEmgChannelsText => activeEmgChannelsText;
         public int[] GetActiveEmgChannels() => delsysEMG.GetChannelsActiveSensor();
+        public int[] GetConfiguredEmgChannels() => new[] { cc11Channel, cc12Channel, cc21Channel, cc22Channel, cc31Channel, cc32Channel };
+
+        public bool HasValidEmgMapping()
+        {
+            int[] activeChannels = delsysEMG.GetChannelsActiveSensor();
+            if (activeChannels == null || activeChannels.Length == 0)
+                return false;
+
+            int[] map = { cc11Channel, cc12Channel, cc21Channel, cc22Channel, cc31Channel, cc32Channel };
+            for (int i = 0; i < map.Length; i++)
+            {
+                if (map[i] <= 0)
+                    continue;
+                if (Array.IndexOf(activeChannels, map[i]) < 0)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private void ApplyDefaultEmgMapping()
+        {
+            int[] activeChannels = delsysEMG.GetChannelsActiveSensor();
+            if (activeChannels == null || activeChannels.Length == 0)
+                return;
+
+            cc11Channel = activeChannels.Length > 0 ? activeChannels[0] : 0;
+            cc12Channel = activeChannels.Length > 1 ? activeChannels[1] : 0;
+            cc21Channel = activeChannels.Length > 2 ? activeChannels[2] : 0;
+            cc22Channel = activeChannels.Length > 3 ? activeChannels[3] : 0;
+            cc31Channel = activeChannels.Length > 4 ? activeChannels[4] : 0;
+            cc32Channel = activeChannels.Length > 5 ? activeChannels[5] : 0;
+
+            Debug.Log($"[M2RoverBridge] EMG mapping defaulted from active channels: {string.Join(", ", activeChannels)}");
+        }
 
         private double GetGlobalT()
         {
@@ -351,47 +490,47 @@ namespace CORC.Demo
             bool active = delsysEnable && delsysEMG.IsConnected() && delsysEMG.IsRunning();
             if (!active)
             {
+                hasEmgFrame = false;
                 string inactiveText = $"EMGSc: -- | t: {Time.timeAsDouble:0.0}s";
                 if (hasText) emgScoreText.text = inactiveText;
                 ScoreManager.Instance?.SetEmgPreview(0f, Time.timeAsDouble, inactiveText);
                 return;
             }
 
-            ApplyEmgRuntimeSettings();
-
             float[] emg = delsysEMG.GetScoreEnvelopeData();
+            int[] activeChannels = delsysEMG.GetChannelsActiveSensor();
+            activeEmgChannelsText = activeChannels != null && activeChannels.Length > 0
+                ? $"Active: {string.Join(", ", activeChannels)} | Map: CC1-1 {cc11Channel}, CC1-2 {cc12Channel}, CC2-1 {cc21Channel}, CC2-2 {cc22Channel}, CC3-1 {cc31Channel}, CC3-2 {cc32Channel}"
+                : string.Empty;
             if (emg == null || emg.Length == 0)
             {
+                hasEmgFrame = false;
                 string emptyText = $"EMGSc: -- | t: {Time.timeAsDouble:0.0}s";
                 if (hasText) emgScoreText.text = emptyText;
                 ScoreManager.Instance?.SetEmgPreview(0f, Time.timeAsDouble, emptyText);
                 return;
             }
 
-            // Compute a simple EMG score from the downsampled envelope signal across all channels.
-            float absMean = 0f;
-            for (int i = 0; i < emg.Length; i++)
-                absMean += Mathf.Abs(emg[i]);
-            absMean /= emg.Length;
+            hasEmgFrame = true;
 
-            float emgScore = absMean * emgScoreScale;
-
-            // emgScoreFiltered = Mathf.Lerp(emgScoreFiltered, emgScore, Mathf.Clamp01(emgScoreEmaLerp));
-            emgScoreFiltered = emgScore;
+            emgSpi = estimator != null ? estimator.Spi : 0f;
+            emgEffortScore = estimator != null ? estimator.EmgScore : 0f;
+            stiffnessCmd = estimator != null ? estimator.StiffnessCmd : 0f;
             emgScoreTimestamp = Time.timeAsDouble;
 
-            string previewText = BuildEmgPreviewText(emg);
+            string previewText = BuildEmgPreviewText(emg, activeChannels);
             if (hasText) emgScoreText.text = previewText;
-            ScoreManager.Instance?.SetEmgPreview(emgScoreFiltered, emgScoreTimestamp, previewText);
+            ScoreManager.Instance?.SetEmgPreview(emgEffortScore, emgScoreTimestamp, previewText);
         }
 
-        private string BuildEmgPreviewText(float[] raw)
+        private string BuildEmgPreviewText(float[] raw, int[] activeChannels)
         {
             StringBuilder sb = new StringBuilder(160);
-            sb.Append("EMGSc: ").Append(emgScoreFiltered.ToString("0.0000"))
+            sb.Append("SPI: ").Append(emgSpi.ToString("0.0000"))
+              .Append(" | EMGSc: ").Append(emgEffortScore.ToString("0.00"))
+              .Append(" | k: ").Append(stiffnessCmd.ToString("0.00"))
               .Append(" | t: ").Append(emgScoreTimestamp.ToString("0.0")).Append('s');
 
-            int[] activeChannels = delsysEMG.GetChannelsActiveSensor();
             int previewCount = Mathf.Min(
                 Mathf.Min(raw.Length, activeChannels.Length),
                 Mathf.Clamp(emgPreviewMaxChannels, 1, 8));
@@ -430,6 +569,25 @@ namespace CORC.Demo
             }
         }
 
+        public void SetCalibrationEmg(float[] emgRest, float[] emgBracing, float[] emgRef = null)
+        {
+            EmgRest = emgRest ?? Array.Empty<float>();
+            EmgBracing = emgBracing ?? Array.Empty<float>();
+            EmgRef = emgRef != null && emgRef.Length > 0 ? emgRef : EmgBracing;
+            Debug.Log($"[M2RoverBridge] Calibration EMG updated. Rest={FormatArrayForLog(EmgRest)} Ref={FormatArrayForLog(EmgRef)} Bracing={FormatArrayForLog(EmgBracing)}");
+        }
+
+        private string FormatArrayForLog(float[] values)
+        {
+            if (values == null || values.Length == 0)
+                return "--";
+
+            string[] parts = new string[values.Length];
+            for (int i = 0; i < values.Length; i++)
+                parts[i] = values[i].ToString("0.000000");
+            return "[" + string.Join(", ", parts) + "]";
+        }
+
         // ----------------------------------------------------------------------------------------------------------------------
         // ------ Unity lifecycle methods ------
 
@@ -447,6 +605,8 @@ namespace CORC.Demo
                 roverRigidbody = rover.GetComponent<Rigidbody>();
             if (worldFollower == null)
                 worldFollower = FindFirstObjectByType<M2WorldFollower>();
+            if (estimator == null)
+                estimator = FindFirstObjectByType<InteractionEstimator>();
 
             if (roverTransform != null)
             {
@@ -472,6 +632,7 @@ namespace CORC.Demo
                 bool connected = delsysEMG.Connect();
                 if (connected){
                     delsysEMG.StartAcquisition();
+                    ApplyDefaultEmgMapping();
                     Debug.LogWarning("Delsys EMG initialized and acquisition started.");
                 }
                 else
@@ -766,48 +927,9 @@ namespace CORC.Demo
             }
         }
 
-
-        // =======================================================================================
-        // --- POS control logic ---
-
-        // Compute steering for POS mode with two paradigms toggled by usePosSyncCorrection.
-        private float ComputeSteerPosMode(float handleX)
-        {
-            float handleXRel = handleX - handleXRef;
-            if (Mathf.Abs(handleXRel) < handleXDeadZone) handleXRel = 0f;
-
-            float steer;
-            steer = handleXRel * handleXToSteer;
-            return Mathf.Clamp(steer, -steerClamp, steerClamp);
-        }
-
-
         // =======================================================================================
         // --- M2 feedback logic ---
 
-
-    // ----------------------- For testing ----------------------------
-
-    // Check feedback send timer and send feedback if it's time. This helps to limit the feedback send rate to M2.
-        // private bool SendFeedbackTimer()
-        // {
-        //     float now = Time.time;
-        //     if (now < nextFeedbackSendTime) return false;
-
-        //     nextFeedbackSendTime = now + 1.0f / CmdSendRateHz;
-        //     return true;
-        // }
-
-    // Send the computed feedback force to M2 using the FRC2 command (No needed currently, just keep it for later testing).
-        // private void SendFeedbackForce(float fx, float fy, bool rateLimited = true)
-        // {
-        //     if (rateLimited && !SendFeedbackTimer()) return;
-        //     if (!blockActive) return;
-        //     if (m2 == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return;
-        //     m2.SendCmd("FRC2", new double[] { fx, fy }); // M2 set all to zeros, no need to send.
-        // }
-
-    // ----------------------------------------------------------------
 
 
 
@@ -890,24 +1012,12 @@ namespace CORC.Demo
             rover.SetInputRaw(new Vector2(steer, 0f));
         }
 
-        private void PosMode(float handleX)
-        {
-            float steer = ComputeSteerPosMode(handleX);
-            ApplyRoverSteer(steer);
-            // SendFeedbackForce(0f, 0f);
-        }
-
         private void ApplyVelMode(float handleXRel)
         {
             float steer = ComputeVelSteerOpenLoopDamped(handleXRel, out float currentVx);
             WarnVelRealtime(handleXRel, currentVx, steer);
             ApplyRoverSteer(steer);
             // SendFeedbackForce(0f, 0f);
-        }
-
-        private void VelMode(float handleXRel)
-        {
-            ApplyVelMode(handleXRel);
         }
 
         private void HandleKeyboardModeFixedUpdate()
@@ -994,6 +1104,8 @@ namespace CORC.Demo
             if (ScoreManager.Instance != null)
                 ScoreManager.Instance.SetScorePaused(isPaused || (unityMode == UnityDriveMode.Mode2_M2 && !blockActive));
 
+            ApplyEmgRuntimeSettings();
+            estimator?.Refresh();
             UpdateEmgScorePreview();
 
         }    
@@ -1033,7 +1145,7 @@ namespace CORC.Demo
 
                 if (ctrl == 1) // POS mode
                 {
-                    PosMode(handleX);
+                    ApplyRoverSteer(0f);
                     WriteScoreLogRow();
                     return;
                 }
@@ -1042,7 +1154,7 @@ namespace CORC.Demo
                 {
                     ApplyForcedVelParamsIfEnabled(); 
                     float handleXRel = ComputeVelHandleXRel(handleX);
-                    VelMode(handleXRel);
+                    ApplyVelMode(handleXRel);
                     WriteScoreLogRow();
                     return;
                 }

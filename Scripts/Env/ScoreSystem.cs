@@ -9,14 +9,14 @@ public class ScoreSystem : MonoBehaviour
     [SerializeField] Rigidbody leaderRb;
 
     [Header("Scoring Parameters")]
-    public float scoreAccumRate = 1.0f; // points deducted per second per unit total cost
+    [SerializeField] float sectionDuration = 4f;
     public float CappedWidthX = 1.0f; // retained for pointer/full-alignment band logic
     public float penaltyValue = 500f;
 
     [Header("Composite Score Weights")]
-    [SerializeField]  float w_tr = 1;
-    [SerializeField]  float w_u = 10f;
-    [SerializeField]  float w_emg = 2000f;
+    [SerializeField]  float w_tr = 100f; // Total tracking reward for an episode
+    [SerializeField]  float w_emg = 100f;
+    [SerializeField]  float fRef = 30f;
 
     [Header("Global Boundary")]
     public float minX = -4.5f;
@@ -27,6 +27,9 @@ public class ScoreSystem : MonoBehaviour
     public float penaltyCooldown = 1.0f; // seconds between penalties while touching boundary
 
     private CORC.Demo.M2RoverBridge bridge;
+    private float forceInt = 0f;
+    private float forceTime = 0f;
+    private int lastSectionNumber = 0;
 
     void Awake()
     {
@@ -56,10 +59,23 @@ public class ScoreSystem : MonoBehaviour
 
         if (!ScoreManager.Instance.HasStartedScoring || ScoreManager.Instance.IsScorePaused)
         {
+            forceInt = 0f;
+            forceTime = 0f;
+            lastSectionNumber = 0;
             return;
         }
 
-        ScoreManager.Instance.UpdateBoundaryUI(targetRb.position.x, minX, maxX);
+        int sectionNumber = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentSectionNumber : 0;
+        if (sectionNumber != lastSectionNumber)
+        {
+            forceInt = 0f;
+            forceTime = 0f;
+            lastSectionNumber = sectionNumber;
+        }
+
+        float xRover = GetRoverX();
+        float xLeader = GetLeaderX();
+        ScoreManager.Instance.UpdateBoundaryUI(xRover, minX, maxX);
 
         bool boundaryContact = DetectBoundaryContact();
         // Global gate: even if multiple callers fire, penalty can apply at most once per cooldown window.
@@ -69,31 +85,30 @@ public class ScoreSystem : MonoBehaviour
             // Removed 'return;' so normal score keeps accumulating while on the boundary.
         }
 
-        float xRover = targetRb.position.x;
-        float xLeader = leaderRb.position.x;
         float xError = xLeader - xRover;
-        float handleFx = GetHandleFx();
-        
-        // Normalize handle force against global participant calibration
-        float calibForce = bridge.CalibForce;
-        float relForce = handleFx / (0.1f * calibForce); // Assume operational force is around 10% of calibForce.
+        float handleFx = GetForceProxy();
+        float trackQuality = 1f - Mathf.Abs(xError) / Mathf.Max(CappedWidthX, 0.0001f);
+        bool emgReady = bridge != null && bridge.HasValidSpi;
+        float emgCost = emgReady
+            ? Mathf.Clamp01(1f - bridge.EmgEffortScore / 100f)
+            : 0f;
 
-        float trackCost = CappedWidthX * CappedWidthX - xError * xError; // >0 inside band (reward), <0 outside (penalty)
-        float forceCost = relForce * relForce; // penalty using normalized force
-        float emgCost = ScoreManager.Instance.EmgScore; // penalty
-        
-        float wTrack = w_tr * trackCost;
-        float wForce = -w_u * forceCost;
+        float wTrack = w_tr * Mathf.Clamp01(trackQuality) / sectionDuration; // reward scaled to section duration
         float wEmg = -w_emg * emgCost;
-        
-        // Compute net reward: positive track score minus penalties for force and EMG
-        float totalCost = wTrack + wForce + wEmg; 
-        
-        // Ensure scoreAccumRate sign doesn't accidentally invert our positive reward logic
-        float deltaScore = scoreAccumRate * totalCost * Time.fixedDeltaTime;
 
+        float dt = Time.fixedDeltaTime;
+        forceInt += Mathf.Abs(handleFx) * dt;
+        forceTime += dt;
+        float fAvg = forceTime > 0f ? forceInt / forceTime : 0f;
+        float wForce = -100f * Mathf.Abs(handleFx) / (Mathf.Max(fRef, 0.0001f) * Mathf.Max(sectionDuration, 0.0001f));
+        float totalCost = wTrack + wForce + wEmg; 
+        float trackDelta = wTrack * Time.fixedDeltaTime;
+        float forceDelta = wForce * Time.fixedDeltaTime;
+        float emgDelta = wEmg * Time.fixedDeltaTime;
+
+        ScoreManager.Instance.SetForceAvg(fAvg);
         ScoreManager.Instance.SetCompositeMetrics(handleFx, wTrack, wForce, wEmg, totalCost);
-        ScoreManager.Instance.AddToScores(deltaScore);
+        ScoreManager.Instance.AddToScores(trackDelta, forceDelta, emgDelta);
     }
 
     bool DetectBoundaryContact()
@@ -133,5 +148,33 @@ public class ScoreSystem : MonoBehaviour
         if (!m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return 0f;
         if (m2.State == null || m2.State["F"] == null || m2.State["F"].Length < 1) return 0f;
         return (float)m2.State["F"][0];
+    }
+
+    float GetForceProxy()
+    {
+        if (bridge != null && bridge.estimator != null)
+            return bridge.estimator.ForceProxy;
+
+        return GetHandleFx();
+    }
+
+    float GetRoverX()
+    {
+        if (bridge != null
+            && bridge.unityMode == CORC.Demo.M2RoverBridge.UnityDriveMode.Mode2_M2
+            && bridge.roverTransform != null)
+            return bridge.roverTransform.position.x;
+
+        return targetRb.position.x;
+    }
+
+    float GetLeaderX()
+    {
+        if (bridge != null
+            && bridge.unityMode == CORC.Demo.M2RoverBridge.UnityDriveMode.Mode2_M2
+            && bridge.leader != null)
+            return bridge.leader.transform.position.x;
+
+        return leaderRb.position.x;
     }
 }

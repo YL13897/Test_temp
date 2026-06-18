@@ -66,6 +66,9 @@ public class DelsysEMG
     private float scoreDownsampleHz = 100f;
     private double downSampleAccumulator = 0.0; // Accumulator for downsampling the score envelope output to a lower frequency.
                                                 // Samples are added up and published when it reaches the target score period.
+    private double acquisitionTime = 0.0;
+    private double scoreEnvelopeTime = 0.0;
+    private long scoreEnvelopeSeq = 0;
 
     //Sensor status
     private bool connected = false; //true if connected to server
@@ -94,6 +97,9 @@ public class DelsysEMG
             scoreEnvelopeFrame[i] = 0f;
         }
         downSampleAccumulator = 0.0;
+        acquisitionTime = 0.0;
+        scoreEnvelopeTime = 0.0;
+        scoreEnvelopeSeq = 0;
 
         recording = false;
         running = false;
@@ -125,6 +131,7 @@ public class DelsysEMG
             case EMGFilter.EmgSignalView.Rectified:
                 return "rectified";
             case EMGFilter.EmgSignalView.Envelope:
+                return "envelope";
             default:
                 return "envelope";
         }
@@ -395,6 +402,43 @@ public class DelsysEMG
         }
     }
 
+    public bool GetScoreEnvelope(out float[] data, out double t, out long seq)
+    {
+        lock (dataLock)
+        {
+            data = CopyActiveChannelData(tempEnvelopeDataList);
+            t = scoreEnvelopeTime;
+            seq = scoreEnvelopeSeq;
+            return seq > 0;
+        }
+    }
+
+    public bool CopyScoreEnvelope(float[] values, int[] map, out double t, out long seq)
+    {
+        t = 0.0;
+        seq = 0;
+        if (values == null || map == null)
+            return false;
+
+        lock (dataLock)
+        {
+            int n = Mathf.Min(values.Length, map.Length);
+            for (int i = 0; i < n; i++)
+            {
+                int channel = map[i];
+                values[i] = channel > 0 && activeSensorChannels.Contains(channel)
+                    ? tempEnvelopeDataList[channel - 1]
+                    : 0f;
+            }
+            for (int i = n; i < values.Length; i++)
+                values[i] = 0f;
+
+            t = scoreEnvelopeTime;
+            seq = scoreEnvelopeSeq;
+            return seq > 0;
+        }
+    }
+
     //Return the number of active sensor
     public int GetNbActiveSensors(){ return activeSensorChannels.Count;}
 
@@ -510,6 +554,7 @@ public class DelsysEMG
                     }
                 }
 
+                acquisitionTime += samplingInterval;
                 downSampleAccumulator += samplingInterval;
                 double scorePeriodSec = 1.0 / scoreDownsampleHz; // scoreDownsampleHz is safely bounded in Init
                 bool envelopeScorePublish = downSampleAccumulator >= scorePeriodSec;
@@ -523,6 +568,11 @@ public class DelsysEMG
                         tempSelectedEmgDataList[sn] = selectedOutputFrame[sn]; 
                         if (envelopeScorePublish)
                             tempEnvelopeDataList[sn] = scoreEnvelopeFrame[sn];
+                    }
+                    if (envelopeScorePublish)
+                    {
+                        scoreEnvelopeTime = acquisitionTime;
+                        scoreEnvelopeSeq++;
                     }
                 }
 

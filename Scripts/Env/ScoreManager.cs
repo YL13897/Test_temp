@@ -9,11 +9,18 @@ public class ScoreManager : MonoBehaviour
     [Header("UI")]
     [SerializeField] TextMeshProUGUI ScoreText;
     [SerializeField] TextMeshProUGUI emgScoreText;
+    [SerializeField] TextMeshProUGUI trackSectionScoreText;
+    [SerializeField] TextMeshProUGUI forceSectionScoreText;
+    [SerializeField] TextMeshProUGUI emgSectionScoreText;
     [SerializeField] Slider sectionBar;
 
     public float GlobalScore { get; private set; }
     public float SectionScore { get; private set; }
     public float EmgScore { get; private set; }
+    public float TrackSectionScore { get; private set; }
+    public float ForceSectionScore { get; private set; }
+    public float ForceAvg { get; private set; }
+    public float EmgSectionScore { get; private set; }
     public double EmgTimestamp { get; private set; }
     public string EmgDetails { get; private set; }
     public float HandleFx { get; private set; }
@@ -92,6 +99,10 @@ public class ScoreManager : MonoBehaviour
     public void ResetSection()
     {
         SectionScore = 0f;
+        TrackSectionScore = 0f;
+        ForceSectionScore = 0f;
+        ForceAvg = 0f;
+        EmgSectionScore = 0f;
         ResetCompositeMetrics();
         if (sectionBar != null)
         {
@@ -106,6 +117,10 @@ public class ScoreManager : MonoBehaviour
     {
         GlobalScore = 0f;
         SectionScore = 0f;
+        TrackSectionScore = 0f;
+        ForceSectionScore = 0f;
+        ForceAvg = 0f;
+        EmgSectionScore = 0f;
         ResetCompositeMetrics();
         HasStartedScoring = false;
         nextPenaltytime = 0.0;
@@ -126,6 +141,24 @@ public class ScoreManager : MonoBehaviour
         GlobalScore += delta;
         SectionScore += delta;
 
+        RefreshUI();
+    }
+
+    public void AddToScores(float trackDelta, float forceDelta, float emgDelta)
+    {
+        float delta = trackDelta + forceDelta + emgDelta;
+        GlobalScore += delta;
+        SectionScore += delta;
+        TrackSectionScore += trackDelta;
+        ForceSectionScore += forceDelta;
+        EmgSectionScore += emgDelta;
+
+        RefreshUI();
+    }
+
+    public void SetForceAvg(float forceAvg)
+    {
+        ForceAvg = Mathf.Max(0f, forceAvg);
         RefreshUI();
     }
 
@@ -173,8 +206,16 @@ public class ScoreManager : MonoBehaviour
     void RefreshUI()
     {
         if (ScoreText != null)
-            // ScoreText.text = $"Score: Global: {GlobalScore:0} | Section: {SectionScore:0} | Track: {WTrack:0.00} | Force: {WForce:0.00} | Emg: {WEmg:0.00} | Total: {TotalCost:0.00}";
-            ScoreText.text = $"Score: Global: {GlobalScore:0} | Section: {SectionScore:0} | Track: {WTrack:0.00} | Force: {WForce:0.00} | Emg: {WEmg:0.00}";
+            ScoreText.text = $"Score: Global: {GlobalScore:0} | Section: {SectionScore:0}";
+
+        if (trackSectionScoreText != null)
+            trackSectionScoreText.text = $"Track Section: {TrackSectionScore:0.00}";
+
+        if (forceSectionScoreText != null)
+            forceSectionScoreText.text = $"Force Section: {ForceSectionScore:0.00}";
+
+        if (emgSectionScoreText != null)
+            emgSectionScoreText.text = $"EMG Section: {EmgSectionScore:0.00}";
         
         if (emgScoreText != null)
             emgScoreText.text = string.IsNullOrEmpty(EmgDetails)

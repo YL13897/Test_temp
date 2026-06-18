@@ -65,17 +65,6 @@ public class RoverHandler : MonoBehaviour
     }
 
 
-    // public void ApplyDamping()
-    // {
-    //     Vector3 vLocal = rb.transform.InverseTransformDirection(rb.linearVelocity);
-
-    //     float vSide = vLocal.x;
-
-    //     // Apply damping only to the steering: F = -k * vSide * right
-    //     rb.AddForce(-transform.right * (vSide * sideDamping), ForceMode.Force);
-    // }
-
-
     // For M2 input, it is already normalized by the posScale and forceScale, 
     // so we can directly use the raw input without normalization.
     public void SetInputRaw(Vector2 inputVector) { input = inputVector; }

@@ -168,6 +168,8 @@ public class EMGFilter : MonoBehaviour
                         selectedOut[i] = rectified;
                         break;
                     case EmgSignalView.Envelope:
+                        selectedOut[i] = envelope;
+                        break;
                     default:
                         selectedOut[i] = envelope;
                         break;
@@ -301,7 +303,6 @@ public class EMGFilter : MonoBehaviour
             lowPassStage1[i].Reset();
             lowPassStage2[i].Reset();
         }
-
         historyWriteIndex = 0;
         historyCount = 0;
         System.Array.Clear(envelopeState, 0, envelopeState.Length);

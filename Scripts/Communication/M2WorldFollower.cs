@@ -23,13 +23,13 @@ public class M2WorldFollower : MonoBehaviour
 
     [Header("Motion")]
     [Range(0f, 1f)] public float smooth = 0.25f; // smoothness factor for position updates
-    [Tooltip("How quickly sync bias follows disturbance-induced offset in M2+HRI+POS mode.")]
-    public float biasFollowRate = 10f;
     [Tooltip("How quickly sync bias returns to zero after disturbance in M2+HRI+POS mode.")]
     public float biasRecoverRate = 4f;
+    [Tooltip("Clamp on disturbance-induced Unity X bias.")]
+    public float maxBias = 2f;
 
     private Vector3 lastPos;
-    private float syncXBias = 0f; // additional bias to apply to Unity X to follow M2 position when HRI disturbance is active
+    private float syncXBias = 0f; // disturbance-induced x offset from nominal mapping
 
     void Awake()
     {
@@ -55,28 +55,26 @@ public class M2WorldFollower : MonoBehaviour
 
         float nominalX = MapM2XToUnityX(m2X);
 
-        // POS+HRI mode with disturbance: apply additional bias to sync Unity X with M2's position changes due to HRI disturbance. Otherwise, smoothly recover bias to zero.
+        // POS+HRI mode maps stiffness to disturbance-induced bias.
         if (IsM2HriPosMode())
         {
             if (IsHriPosDisturbanceActive())
             {
-                // Compute the desired bias: current marker x-position relative to the nominal reference
-                float desiredBias = marker.position.x - nominalX;
-                // Compute smoothing factor (alpha) based on follow rate and physics timestep. 
-                // Clamp to [0,1] to ensure stable interpolation
-                float biasAlpha = Mathf.Clamp01(biasFollowRate * Time.fixedDeltaTime);
-                // Smoothly update the synchronized bias using linear interpolation (exponential smoothing)
-                // This gradually moves syncXBias toward desiredBias instead of jumping instantly.
-                syncXBias = Mathf.Lerp(syncXBias, desiredBias, biasAlpha);
+                int dir = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentDirection : 0;
+                float k = bridge != null ? bridge.StiffnessCmd : 0f;
+                float k01 = bridge != null
+                    ? Mathf.InverseLerp(bridge.StiffnessMin, bridge.StiffnessMax, k)
+                    : 0f;
+                syncXBias = dir * maxBias * (1f - k01);
             }
             else
             {
                 float recoverAlpha = Mathf.Clamp01(biasRecoverRate * Time.fixedDeltaTime);
                 syncXBias = Mathf.Lerp(syncXBias, 0f, recoverAlpha);
             }
-        }
 
-        // If not in POS+HRI mode, or if there is no disturbance, just reset bias to zero.
+            syncXBias = Mathf.Clamp(syncXBias, -maxBias, maxBias);
+        }
         else
         {
             syncXBias = 0f;
@@ -133,6 +131,7 @@ public class M2WorldFollower : MonoBehaviour
     public void ResetBias()
     {
         syncXBias = 0f;
+        lastPos = Vector3.zero;
     }
 
     // ApplySmoothPosition: Smoothly move the marker towards the target position. The 'smooth' parameter controls the responsiveness.

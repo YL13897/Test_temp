@@ -11,6 +11,7 @@ namespace CORC.Demo
         [Header("Refs")]
         public CORC.CORCM2 m2;
         public M2RoverBridge bridge;
+        public CalibrationManager calibrationManager;
 
         [Header("Texts (TMP)")]
         public TMP_Text timeTxt;
@@ -19,6 +20,8 @@ namespace CORC.Demo
         public TMP_Text frcTxt;
         public TMP_Text statusTxt;
         public TMP_Text disturbanceTxt;
+        public TMP_Text calibrationTxt;
+        public Slider kSlider;
 
         [Header("Buttons")]
         public Button beginSessionBtn;
@@ -31,6 +34,7 @@ namespace CORC.Demo
         public Button emergencyStopBtn;
         public Button startRecordingBtn;
         public Button stopRecordingBtn;
+        public Button startCalibrBtn;
 
         [Header("Dropdowns")]
         public TMP_Dropdown unityModeDropdown; // Mode1 keyboard / Mode2 M2
@@ -52,6 +56,8 @@ namespace CORC.Demo
         private readonly Color startRecIdleColor = new Color(0.85f, 0.85f, 0.85f, 1f);
         private readonly Color startRecActiveColor = new Color(0.25f, 0.70f, 0.25f, 1f);
         private ExperimentBlockControl blockControl;
+        private bool IsM2Mode => bridge != null && bridge.unityMode == M2RoverBridge.UnityDriveMode.Mode2_M2;
+        private bool CanStartBlock => blockControl != null && blockControl.CanStartPreparedBlock();
 
 
         // ---------------------------------------------------------------------------------------------
@@ -78,15 +84,18 @@ namespace CORC.Demo
         // Set command buttons interactable state based on current mode and M2 readiness
         private void SetCommandButtonsInteractable()
         {
-            bool isM2Mode = bridge != null && bridge.unityMode == M2RoverBridge.UnityDriveMode.Mode2_M2;
-            bool canStartBlock = blockControl != null && blockControl.CanStartPreparedBlock();
             if (confirmUnityModeBtn) confirmUnityModeBtn.interactable = true;
             if (confirmModeBtn) confirmModeBtn.interactable = true;
             if (confirmModeBtn1) confirmModeBtn1.interactable = true;
-            if (startExperimentBtn) startExperimentBtn.interactable = isM2Mode && bginReady && !pendingHriApply && !pendingCtrlApply && canStartBlock;
-            if (returnWaitStartBtn) returnWaitStartBtn.interactable = isM2Mode && bginReady;
-            if (toAButton) toAButton.interactable = isM2Mode;
-            if (emergencyStopBtn) emergencyStopBtn.interactable = isM2Mode;
+            if (startExperimentBtn) startExperimentBtn.interactable = IsM2Mode && bginReady && !pendingHriApply && !pendingCtrlApply && CanStartBlock;
+            if (returnWaitStartBtn) returnWaitStartBtn.interactable = IsM2Mode && bginReady;
+            if (toAButton) toAButton.interactable = IsM2Mode;
+            if (emergencyStopBtn) emergencyStopBtn.interactable = IsM2Mode;
+            if (startCalibrBtn)
+            {
+                startCalibrBtn.interactable = calibrationManager != null &&
+                    calibrationManager.CanStartCalibration();
+            }
             
         }
 
@@ -116,6 +125,50 @@ namespace CORC.Demo
             if (!statusTxt) return;
             statusTxt.color = color;
             statusTxt.text = msg;
+        }
+
+        private void UpdateCalibrationText()
+        {
+            if (calibrationTxt == null)
+                return;
+
+            float calibForce = bridge != null ? bridge.CalibForce : 0f;
+            float standbyK = bridge != null ? bridge.StandbyK : 0f;
+            string emgRestText = FormatFloatArray(bridge != null ? bridge.EmgRest : null);
+            string emgRefText = FormatFloatArray(bridge != null ? bridge.EmgRef : null);
+            string emgBracingText = FormatFloatArray(bridge != null ? bridge.EmgBracing : null);
+            string note = calibrationManager != null ? calibrationManager.lastResponseNote : string.Empty;
+            calibrationTxt.text =
+                $"CalibForce: {calibForce:0.00}\n" +
+                $"StandbyK: {standbyK:0.00}\n" +
+                $"SPI Scale: {(calibrationManager != null ? calibrationManager.lastReturnedEmgScale : 0f):0.000}\n" +
+                $"Disturbance: {(calibrationManager != null ? calibrationManager.lastReturnedDisturbanceGain : 0f):0.000}\n" +
+                $"Threshold: {(calibrationManager != null ? calibrationManager.lastReturnedThreshold : 0f):0.000}\n" +
+                $"EMG Rest: {emgRestText}\n" +
+                $"EMG Ref: {emgRefText}\n" +
+                $"EMG Bracing: {emgBracingText}\n" +
+                $"Note: {note}";
+        }
+
+        private string FormatFloatArray(float[] values)
+        {
+            if (values == null || values.Length == 0)
+                return "--";
+
+            string[] parts = new string[values.Length];
+            for (int i = 0; i < values.Length; i++)
+                parts[i] = values[i].ToString("0.000000");
+            return "[" + string.Join(", ", parts) + "]";
+        }
+
+        private void UpdateKSlider()
+        {
+            if (kSlider == null || bridge == null)
+                return;
+
+            kSlider.minValue = bridge.StiffnessMin;
+            kSlider.maxValue = bridge.StiffnessMax;
+            kSlider.value = Mathf.Clamp(bridge.StiffnessCmd, kSlider.minValue, kSlider.maxValue);
         }
 
         // Try to apply pending HRI/CTRL mode settings if we are waiting for M2 to be ready at A after BGIN
@@ -195,8 +248,7 @@ namespace CORC.Demo
             if (bridge)
                 bridge.ApplyM2Modes(pendingHri, pendingCtrl);
 
-            bool isM2Mode = bridge != null && bridge.unityMode == M2RoverBridge.UnityDriveMode.Mode2_M2;
-            if (!isM2Mode)
+            if (!IsM2Mode)
             {
                 pendingHriApply = false;
                 SetCommandButtonsInteractable();
@@ -228,8 +280,7 @@ namespace CORC.Demo
             if (bridge)
                 bridge.ApplyM2Modes(pendingHri, pendingCtrl);
 
-            bool isM2Mode = bridge != null && bridge.unityMode == M2RoverBridge.UnityDriveMode.Mode2_M2;
-            if (!isM2Mode)
+            if (!IsM2Mode)
             {
                 pendingCtrlApply = false;
                 SetCommandButtonsInteractable();
@@ -410,6 +461,21 @@ namespace CORC.Demo
             RecordBtnInteract();
         }
 
+        private void OnStartCalibration()
+        {
+            if (calibrationManager == null)
+            {
+                if (statusTxt) SetStatus(Color.yellow, "CalibrationManager missing.");
+                return;
+            }
+
+            bool started = calibrationManager.StartCalibrationSession(!IsM2Mode);
+            SetCommandButtonsInteractable();
+
+            if (statusTxt)
+                SetStatus(started ? Color.white : Color.yellow, calibrationManager.LastStatus);
+        }
+
         private void OnCalibForceEdit(string value)
         {
             if (bridge != null)
@@ -449,6 +515,7 @@ namespace CORC.Demo
             if (emergencyStopBtn) emergencyStopBtn.onClick.AddListener(OnEmergencyStop);
             if (startRecordingBtn) startRecordingBtn.onClick.AddListener(OnStartRecording);
             if (stopRecordingBtn) stopRecordingBtn.onClick.AddListener(OnStopRecording);
+            if (startCalibrBtn) startCalibrBtn.onClick.AddListener(OnStartCalibration);
             
             if (calibForceInput)
             {
@@ -464,6 +531,8 @@ namespace CORC.Demo
 
             if (bridge == null)
                 bridge = FindFirstObjectByType<M2RoverBridge>();
+            if (calibrationManager == null)
+                calibrationManager = FindFirstObjectByType<CalibrationManager>();
             blockControl = FindFirstObjectByType<ExperimentBlockControl>();
             SetCommandButtonsInteractable();
 
@@ -474,7 +543,9 @@ namespace CORC.Demo
         void Update()
         {
             RecordBtnInteract();
-            if (disturbanceTxt) disturbanceTxt.text = $"Disturbance: {ForceField.DisturbanceU:F1}";
+            // if (disturbanceTxt) disturbanceTxt.text = $"Disturbance: {ForceField.DisturbanceU:F1}";
+            UpdateCalibrationText();
+            UpdateKSlider();
 
             if (proxy == null || !proxy.IsReady)
             {
@@ -482,8 +553,11 @@ namespace CORC.Demo
                 SetCommandButtonsInteractable();
                 if (statusTxt)
                 {
-                    bool isM2Mode = bridge != null && bridge.unityMode == M2RoverBridge.UnityDriveMode.Mode2_M2;
-                    SetStatus(Color.white, isM2Mode ? "Connecting to Robot..." : "Keyboard mode active.");
+                    bool showCalibrationStatus = calibrationManager != null && calibrationManager.IsCalibrationActive;
+                    if (showCalibrationStatus)
+                        SetStatus(Color.white, calibrationManager.LastStatus);
+                    else
+                        SetStatus(Color.white, IsM2Mode ? "Connecting to Robot..." : "Keyboard mode active.");
                 }
                 return;
             }
@@ -509,6 +583,9 @@ namespace CORC.Demo
             if (posTxt) posTxt.text = $"Position: [{X[0]:F3}, {X[1]:F3}]";
             if (velTxt) velTxt.text = $"Velocity: [{dX[0]:F3}, {dX[1]:F3}]";
             if (frcTxt) frcTxt.text = $"Force: [{F[0]:F3}, {F[1]:F3}]";
+
+            if (calibrationManager != null && calibrationManager.IsCalibrationActive && statusTxt)
+                SetStatus(Color.white, calibrationManager.LastStatus);
 
             var cmds = proxy.DrainCmds();
 
