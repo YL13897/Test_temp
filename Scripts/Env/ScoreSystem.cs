@@ -10,7 +10,6 @@ public class ScoreSystem : MonoBehaviour
 
     [Header("Scoring Parameters")]
     [SerializeField] float sectionDuration = 4f;
-    public float CappedWidthX = 1.0f; // retained for pointer/full-alignment band logic
     public float penaltyValue = 500f;
 
     [Header("Composite Score Weights")]
@@ -85,15 +84,19 @@ public class ScoreSystem : MonoBehaviour
             // Removed 'return;' so normal score keeps accumulating while on the boundary.
         }
 
-        float xError = xLeader - xRover;
-        float handleFx = GetForceProxy();
-        float trackQuality = 1f - Mathf.Abs(xError) / Mathf.Max(CappedWidthX, 0.0001f);
+        float e = xRover - xLeader;
+        float handleFx = GetForceSensorX();
+        const float trackEps = 0.02f;
+        float trackNormaliser = Mathf.Sqrt(4f + trackEps * trackEps) - trackEps;
+        float trackSmoothAbs = Mathf.Sqrt(e * e + trackEps * trackEps) - trackEps;
+        float trackCost = w_tr * trackSmoothAbs / Mathf.Max(trackNormaliser, 0.0001f);
+        float trackReward = w_tr - trackCost;
         bool emgReady = bridge != null && bridge.HasValidSpi;
         float emgCost = emgReady
             ? Mathf.Clamp01(1f - bridge.EmgEffortScore / 100f)
             : 0f;
 
-        float wTrack = w_tr * Mathf.Clamp01(trackQuality) / sectionDuration; // reward scaled to section duration
+        float wTrack = trackReward / sectionDuration; // reward scaled to section duration
         float wEmg = -w_emg * emgCost;
 
         float dt = Time.fixedDeltaTime;
@@ -107,7 +110,7 @@ public class ScoreSystem : MonoBehaviour
         float emgDelta = wEmg * Time.fixedDeltaTime;
 
         ScoreManager.Instance.SetForceAvg(fAvg);
-        ScoreManager.Instance.SetCompositeMetrics(handleFx, wTrack, wForce, wEmg, totalCost);
+        ScoreManager.Instance.SetCompositeMetrics(handleFx, trackCost, wTrack, wForce, wEmg, totalCost);
         ScoreManager.Instance.AddToScores(trackDelta, forceDelta, emgDelta);
     }
 
@@ -150,10 +153,10 @@ public class ScoreSystem : MonoBehaviour
         return (float)m2.State["F"][0];
     }
 
-    float GetForceProxy()
+    float GetForceSensorX()
     {
-        if (bridge != null && bridge.estimator != null)
-            return bridge.estimator.ForceProxy;
+        if (bridge != null && bridge.TryGetInteractionForceX(out float fx))
+            return fx;
 
         return GetHandleFx();
     }

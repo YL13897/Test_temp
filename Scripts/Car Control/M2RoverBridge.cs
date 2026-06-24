@@ -43,6 +43,12 @@ namespace CORC.Demo
             Mode2_M2 = 2
         }
 
+        public enum DisturbanceForceMode
+        {
+            Calibrated = 0,
+            Manual = 1
+        }
+
         [Header("Unity Mode")]
         public UnityDriveMode unityMode = UnityDriveMode.Mode1_Keyboard;
         bool blockActive = false;
@@ -50,6 +56,12 @@ namespace CORC.Demo
         public int hriModeCode = 2;
         [Tooltip("1=V1_POS, 2=V2_VEL")]
         public int ctrlModeCode = 1;
+
+        [Header("pHRI Disturbance")]
+        [Tooltip("Calibrated uses 40% of CalibForce; Manual uses the value below.")]
+        [SerializeField] private DisturbanceForceMode disturbanceForceMode = DisturbanceForceMode.Calibrated;
+        [Tooltip("Manual disturbance force in newtons.")]
+        [SerializeField, Range(1f, 50f)] private float manualDisturbanceForce = 20f;
 
         [Header("M2 VEL mode (open-loop damped steer)")]
         public float velHandleXDeadZone = 0.01f;
@@ -627,6 +639,7 @@ namespace CORC.Demo
                 if (emgFilter == null)
                     emgFilter = FindFirstObjectByType<EMGFilter>();
 
+                delsysEMG.SetDebugSink(GetComponent<EmgDebugCsvLogger>());
                 delsysEMG.Init(emgFilter, emgScoreDownsampleHz);
                 ApplyEmgRuntimeSettings();
                 bool connected = delsysEMG.Connect();
@@ -657,7 +670,7 @@ namespace CORC.Demo
                 .Append(xRover.ToString("F6")).Append(',')
                 .Append(xLeader.ToString("F6")).Append(',')
                 .Append(ScoreManager.Instance.HandleFx.ToString("F6")).Append(',')
-                .Append(ScoreManager.Instance.WTrack.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.TrackCost.ToString("F6")).Append(',')
                 .Append(ScoreManager.Instance.WForce.ToString("F6")).Append(',')
                 .Append(ScoreManager.Instance.WEmg.ToString("F6")).Append(',')
                 .Append(blockIndex).Append(',')
@@ -943,9 +956,10 @@ namespace CORC.Demo
             bool state = ForceField.DisturbanceU > 0.5f;
             int direction = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentDirection : -1;
             
-            // Send dynamic disturbance magnitude (-X or +X N) calculated from participant's CalibForce
-            double disturbanceMagnitude = (double)(CalibForce * 0.4f);
-            disturbanceMagnitude = Mathf.Clamp((float)disturbanceMagnitude, 1f, 50.0f); // Clamp the disturbance magnitude to prevent excessively large forces.
+            float disturbanceMagnitude = disturbanceForceMode == DisturbanceForceMode.Manual
+                ? manualDisturbanceForce
+                : CalibForce * 0.4f;
+            disturbanceMagnitude = Mathf.Clamp(disturbanceMagnitude, 1f, 50f);
             double disturbanceCmd = state ? (direction < 0 ? -disturbanceMagnitude : disturbanceMagnitude) : 0.0;
 
             if (!hasSentDisturbanceState || state != lastDisturbanceState)

@@ -23,13 +23,15 @@ public class M2WorldFollower : MonoBehaviour
 
     [Header("Motion")]
     [Range(0f, 1f)] public float smooth = 0.25f; // smoothness factor for position updates
-    [Tooltip("How quickly sync bias returns to zero after disturbance in M2+HRI+POS mode.")]
+    [Tooltip("How quickly sync bias returns to zero after disturbance.")]
     public float biasRecoverRate = 4f;
     [Tooltip("Clamp on disturbance-induced Unity X bias.")]
-    public float maxBias = 2f;
+    [Range(0f, 10f)] public float maxBias = 3f;
 
     private Vector3 lastPos;
     private float syncXBias = 0f; // disturbance-induced x offset from nominal mapping
+    private bool hasBiasBase = false;
+    private float biasBaseX = 0f;
 
     void Awake()
     {
@@ -40,8 +42,15 @@ public class M2WorldFollower : MonoBehaviour
 
     void FixedUpdate()
     {
-        if (m2 == null || marker == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return;
+        if (marker == null || markerRb == null) return;
 
+        if (IsKeyboardMode())
+        {
+            ApplyKeyboardBias();
+            return;
+        }
+
+        if (m2 == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return;
         if (m2.State == null || m2.State["X"] == null || m2.State["X"].Length < 1) return;
 
         float m2X = (float)m2.State["X"][0];
@@ -50,6 +59,7 @@ public class M2WorldFollower : MonoBehaviour
         if (IsM2VelMode())
         {
             syncXBias = 0f;
+            hasBiasBase = false;
             return;
         }
 
@@ -79,6 +89,7 @@ public class M2WorldFollower : MonoBehaviour
         {
             syncXBias = 0f;
         }
+        hasBiasBase = false;
 
         float targetX = nominalX + syncXBias;
         Vector3 target = BuildTargetPosition(targetX);
@@ -115,6 +126,11 @@ public class M2WorldFollower : MonoBehaviour
         return true;
     }
 
+    private bool IsKeyboardMode()
+    {
+        return bridge != null && bridge.unityMode == M2RoverBridge.UnityDriveMode.Mode1_Keyboard;
+    }
+
     private bool IsM2VelMode()
     {
         if (bridge == null) return false;
@@ -132,6 +148,40 @@ public class M2WorldFollower : MonoBehaviour
     {
         syncXBias = 0f;
         lastPos = Vector3.zero;
+        hasBiasBase = false;
+    }
+
+    private void ApplyKeyboardBias()
+    {
+        bool active = ForceField.DisturbanceU > 0.5f;
+        if (active)
+        {
+            if (!hasBiasBase)
+            {
+                biasBaseX = markerRb.position.x;
+                lastPos = markerRb.position;
+                hasBiasBase = true;
+            }
+
+            int dir = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentDirection : 0;
+            if (dir == 0) dir = 1;
+            syncXBias = dir * maxBias;
+        }
+        else
+        {
+            float recoverAlpha = Mathf.Clamp01(biasRecoverRate * Time.fixedDeltaTime);
+            syncXBias = Mathf.Lerp(syncXBias, 0f, recoverAlpha);
+            if (Mathf.Abs(syncXBias) < 1e-3f)
+            {
+                syncXBias = 0f;
+                hasBiasBase = false;
+                return;
+            }
+        }
+
+        if (!hasBiasBase) return;
+        Vector3 target = BuildTargetPosition(biasBaseX + Mathf.Clamp(syncXBias, -maxBias, maxBias));
+        ApplySmoothPosition(target);
     }
 
     // ApplySmoothPosition: Smoothly move the marker towards the target position. The 'smooth' parameter controls the responsiveness.

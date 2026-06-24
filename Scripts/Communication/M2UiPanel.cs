@@ -142,7 +142,6 @@ namespace CORC.Demo
                 $"CalibForce: {calibForce:0.00}\n" +
                 $"StandbyK: {standbyK:0.00}\n" +
                 $"SPI Scale: {(calibrationManager != null ? calibrationManager.lastReturnedEmgScale : 0f):0.000}\n" +
-                $"Disturbance: {(calibrationManager != null ? calibrationManager.lastReturnedDisturbanceGain : 0f):0.000}\n" +
                 $"Threshold: {(calibrationManager != null ? calibrationManager.lastReturnedThreshold : 0f):0.000}\n" +
                 $"EMG Rest: {emgRestText}\n" +
                 $"EMG Ref: {emgRefText}\n" +

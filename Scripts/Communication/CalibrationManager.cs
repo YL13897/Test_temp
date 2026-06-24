@@ -41,7 +41,6 @@ namespace CORC.Demo
             public float calibForce;
             public float standbyK;
             public float emgScale;
-            public float disturbanceGain;
             public float threshold;
             public float[] emgRest = Array.Empty<float>();
             public float[] emgBracing = Array.Empty<float>();
@@ -71,7 +70,6 @@ namespace CORC.Demo
 
         [Header("Last Returned Params")]
         public float lastReturnedEmgScale;
-        public float lastReturnedDisturbanceGain;
         public float lastReturnedThreshold;
         [TextArea]
         public string lastResponseNote = "";
@@ -289,7 +287,6 @@ namespace CORC.Demo
             estimator?.ApplyCalibration(response.emgForceWeights, response.emgForceBias, response.spiRest, response.spiRef);
 
             lastReturnedEmgScale = response.emgScale;
-            lastReturnedDisturbanceGain = response.disturbanceGain;
             lastReturnedThreshold = response.threshold;
             lastResponseNote = response.note ?? string.Empty;
             LastStatus = string.IsNullOrWhiteSpace(response.note)

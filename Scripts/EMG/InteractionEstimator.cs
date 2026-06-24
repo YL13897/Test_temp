@@ -1,10 +1,14 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
 using UnityEngine;
+using UnityEngine.Serialization;
 using TMPro;
+
+// InteractionEstimator.cs estimates user-robot interaction force and stiffness modulation from EMG signals, and compares with force sensor readings if available.
+// Method A (EmgOnly mode) uses a weighted sum of normalized EMG envelopes to estimate both force proxy and stiffness modulation (SPI), which requires calibration of the weights and bias.
+// Method B (ForceSensorCci mode) uses the force sensor reading as the force proxy, and uses a simple antagonistic pair ratio as the SP.
 
 namespace CORC.Demo
 {
@@ -30,7 +34,14 @@ namespace CORC.Demo
         [SerializeField] private float spiRef = 1f;
 
         [Header("SPI Smoothing")]
-        [SerializeField] private float spiWindowSec = 0.1f;
+        // EMG pipeline:
+        // raw EMG -> [EMGFilter.cs] band-pass 20-450 Hz -> full-wave rectification -> 2nd-order low-pass envelope
+        // -> [DelsysEMG.cs] downsample to 100 Hz -> [InteractionEstimator.cs] computes SPI
+        // -> optional triangular SPI filter -> EMA SPI filter -> StiffnessCmd / EMG score.
+        [SerializeField] private bool useSpiTriFilter = true;
+        [SerializeField] private float spiTriWindowSec = 0.1f;
+        [FormerlySerializedAs("spiWindowSec")]
+        [SerializeField] private float spiTauSec = 0.1f;
 
         [Header("Debug CSV")]
         [SerializeField] private bool logDebugCsv = false;
@@ -51,20 +62,18 @@ namespace CORC.Demo
         private bool hasLastSpi = false;
         private bool hasMethodACalibration = false;
         private bool loggedDefaultWeights = false;
-        private readonly Queue<SpiSample> spiSamples = new Queue<SpiSample>();
-        private float spiSum = 0f;
+        private float[] spiTriBuf = Array.Empty<float>();
+        private int spiTriIndex = 0;
+        private int spiTriCount = 0;
+        private float spiSmooth = 0f;
+        private double lastSpiT = 0.0;
+        private bool hasSpiSmooth = false;
         private long lastEmgSeq = 0;
         private Mode lastMode;
         private readonly float[] emg = new float[6];
         private readonly int[] map = new int[6];
         private StreamWriter debugWriter;
         private float nextDebugT = 0f;
-
-        private struct SpiSample
-        {
-            public double t;
-            public float v;
-        }
 
         void Awake()
         {
@@ -318,22 +327,66 @@ namespace CORC.Demo
 
         private float SmoothSpi(float value, double t)
         {
-            if (spiSamples.Count > 0 && t < spiSamples.Peek().t)
-                ClearSpi();
+            if (!hasSpiSmooth || t <= lastSpiT)
+            {
+                ClearTri();
+                spiSmooth = TriSpi(value, 0.01f);
+                lastSpiT = t;
+                hasSpiSmooth = true;
+                return spiSmooth;
+            }
 
-            double window = spiWindowSec;
-            spiSamples.Enqueue(new SpiSample { t = t, v = value });
-            spiSum += value;
-            while (spiSamples.Count > 0 && t - spiSamples.Peek().t > window)
-                spiSum -= spiSamples.Dequeue().v;
+            float dt = (float)(t - lastSpiT);
+            value = TriSpi(value, dt);
+            float tau = Mathf.Max(spiTauSec, 1e-6f);
+            float alpha = 1f - Mathf.Exp(-dt / tau);
+            spiSmooth += alpha * (value - spiSmooth);
+            lastSpiT = t;
+            return spiSmooth;
+        }
 
-            return spiSum / spiSamples.Count;
+        private float TriSpi(float value, float dt)
+        {
+            if (!useSpiTriFilter)
+                return value;
+
+            int size = Mathf.Max(1, Mathf.RoundToInt(spiTriWindowSec / Mathf.Max(dt, 1e-6f)));
+            if (spiTriBuf.Length != size)
+            {
+                spiTriBuf = new float[size];
+                spiTriIndex = 0;
+                spiTriCount = 0;
+            }
+
+            spiTriBuf[spiTriIndex] = value;
+            spiTriIndex = (spiTriIndex + 1) % size;
+            if (spiTriCount < size)
+                spiTriCount++;
+
+            float sum = 0f;
+            float weightSum = 0f;
+            for (int i = 0; i < spiTriCount; i++)
+            {
+                int idx = (spiTriIndex - spiTriCount + i + size) % size;
+                float weight = i + 1f;
+                sum += spiTriBuf[idx] * weight;
+                weightSum += weight;
+            }
+            return sum / Mathf.Max(weightSum, 1e-6f);
+        }
+
+        private void ClearTri()
+        {
+            spiTriIndex = 0;
+            spiTriCount = 0;
         }
 
         private void ClearSpi()
         {
-            spiSamples.Clear();
-            spiSum = 0f;
+            ClearTri();
+            spiSmooth = 0f;
+            lastSpiT = 0.0;
+            hasSpiSmooth = false;
             lastEmgSeq = 0;
         }
 
@@ -382,11 +435,13 @@ namespace CORC.Demo
 
         private void WriteDebugCsv()
         {
-            if (!logDebugCsv || bridge == null || !bridge.IsTrialLoggingActive)
+            if (!logDebugCsv || bridge == null)
             {
                 CloseDebugCsv();
                 return;
             }
+            if (!bridge.IsTrialLoggingActive)
+                return;
 
             float interval = debugCsvHz > 0f ? 1f / debugCsvHz : 0f;
             if (interval > 0f && Time.time < nextDebugT)

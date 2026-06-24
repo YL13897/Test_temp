@@ -1,9 +1,13 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 
 // EMGFilter: Real-time sEMG pre-processing component.
-// Pipeline: 4th-order band-pass (two cascaded high-pass + two cascaded low-pass stages),
-// full-wave rectification, then low-pass envelope extraction.
+// Pipeline:
+// raw EMG -> [EMGFilter.cs] band-pass 20-450 Hz -> full-wave rectification -> 2nd-order low-pass envelope
+// -> [DelsysEMG.cs] downsample to 100 Hz -> [InteractionEstimator.cs] computes SPI
+// -> optional triangular SPI filter -> EMA SPI filter -> StiffnessCmd / EMG score.
 // The component also stores a rolling history buffer so display code can render scrolling traces without touching the acquisition path.
+
 public class EMGFilter : MonoBehaviour
 {
     private const float ButterworthQ = 0.70710678f; // Butterworth choice: 1 / sqrt(2) 
@@ -11,7 +15,7 @@ public class EMGFilter : MonoBehaviour
     private const float DefaultSampleRateHz = 1111.1111f; // 1 / 0.0009
     private const float DefaultHighPassHz = 20f;
     private const float DefaultLowPassHz = 450f;
-    private const float DefaultEnvelopeHz = 15f;
+    private const float DefaultEnvelopeHz = 10f;
     private const int DefaultHistorySamples = 512;
 
     [Header("sEMG Filter")]
@@ -19,6 +23,7 @@ public class EMGFilter : MonoBehaviour
     [SerializeField] private float sampleRateHz = DefaultSampleRateHz;
     [SerializeField] private float highPassHz = DefaultHighPassHz;
     [SerializeField] private float lowPassHz = DefaultLowPassHz;
+    [FormerlySerializedAs("envelopeWindowMs")]
     [SerializeField] private float envelopeHz = DefaultEnvelopeHz;
 
     [Header("Display Buffer")]
@@ -31,8 +36,7 @@ public class EMGFilter : MonoBehaviour
     private Biquad[] highPassStage1; 
     private Biquad[] lowPassStage1;
     private Biquad[] lowPassStage2;
-    private float[] envelopeState;
-    private float envelopeAlpha;
+    private Biquad[] envelopeStage;
 
     private float[,] rawHistory;
     private float[,] filteredHistory;
@@ -79,7 +83,7 @@ public class EMGFilter : MonoBehaviour
 
     private void EnsureReady()
     {
-        if (highPassStage1 == null || highPassStage1.Length != channelCount || coefficientsDirty)
+        if (highPassStage1 == null || envelopeStage == null || highPassStage1.Length != channelCount || envelopeStage.Length != channelCount || coefficientsDirty)
             Rebuild();
     }
 
@@ -97,7 +101,6 @@ public class EMGFilter : MonoBehaviour
         float hp = Mathf.Clamp(highPassHz, 0.001f, nyquist - 0.001f);
         float lp = Mathf.Clamp(lowPassHz, hp + 0.001f, nyquist - 0.001f); 
         float env = Mathf.Clamp(envelopeHz, 0.001f, nyquist - 0.001f);
-        envelopeAlpha = ComputeEnvelopeAlpha(sampleRateHz, env);
 
         for (int i = 0; i < channelCount; i++)
         {
@@ -105,6 +108,7 @@ public class EMGFilter : MonoBehaviour
             highPassStage2[i].SetHighPass(sampleRateHz, hp, ButterworthQ);
             lowPassStage1[i].SetLowPass(sampleRateHz, lp, ButterworthQ);
             lowPassStage2[i].SetLowPass(sampleRateHz, lp, ButterworthQ);
+            envelopeStage[i].SetLowPass(sampleRateHz, env, ButterworthQ);
         }
 
         coefficientsDirty = false;
@@ -122,7 +126,8 @@ public class EMGFilter : MonoBehaviour
     }
 
     // ProcessFrame(): main entry point for processing a new frame of raw EMG samples. Applies the filter pipeline and updates the history buffers.
-    public void ProcessFrame(float[] rawSamples, EmgSignalView signal, float[] selectedOut, float[] envelopeOut = null)
+    public void ProcessFrame(float[] rawSamples, EmgSignalView signal, float[] selectedOut,
+        float[] envelopeOut = null, IEmgDebugSink debugSink = null, double t = 0.0)
     {
         lock (syncRoot)
         {
@@ -131,7 +136,11 @@ public class EMGFilter : MonoBehaviour
                 return;
 
             int count = Mathf.Min(channelCount, Mathf.Min(rawSamples.Length, selectedOut.Length));
-            bool needsEnvelope = envelopeOut != null;
+            bool needsEnvelope = envelopeOut != null || debugSink != null;
+            float filtered1 = 0f;
+            float filtered2 = 0f;
+            float envelope1 = 0f;
+            float envelope2 = 0f;
 
             // If the requested signal view is raw and envelope is not needed, skip all filtering.
             // This allows fast pass-through when the scope is set to raw view.
@@ -152,9 +161,13 @@ public class EMGFilter : MonoBehaviour
                 filtered = lowPassStage1[i].Process(filtered);
                 filtered = lowPassStage2[i].Process(filtered);
 
+                if (i == 0) filtered1 = filtered;
+                else if (i == 1) filtered2 = filtered;
+
                 float rectified = Mathf.Abs(filtered);
-                float envelope = envelopeState[i] + envelopeAlpha * (rectified - envelopeState[i]);
-                envelopeState[i] = envelope;
+                float envelope = envelopeStage[i].Process(rectified);
+                if (i == 0) envelope1 = envelope;
+                else if (i == 1) envelope2 = envelope;
 
                 switch (signal)
                 {
@@ -175,9 +188,14 @@ public class EMGFilter : MonoBehaviour
                         break;
                 }
 
-                if (needsEnvelope && i < envelopeOut.Length)
+                if (envelopeOut != null && i < envelopeOut.Length)
                     envelopeOut[i] = envelope;
             }
+
+            if (debugSink != null && count >= 2)
+                debugSink.Capture(t,
+                    rawSamples[0], filtered1, envelope1,
+                    rawSamples[1], filtered2, envelope2);
 
             PushSelectedHistory(rawSamples, signal, selectedOut, envelopeOut, count);
         }
@@ -260,13 +278,13 @@ public class EMGFilter : MonoBehaviour
     // AllocateBuffers(): allocate filter banks and optional history storage.
     private void AllocateBuffers()
     {
-        if (highPassStage1 == null || highPassStage1.Length != channelCount)
+        if (highPassStage1 == null || envelopeStage == null || highPassStage1.Length != channelCount || envelopeStage.Length != channelCount)
         {
             highPassStage1 = CreateFilterBank(channelCount);
             highPassStage2 = CreateFilterBank(channelCount);
             lowPassStage1 = CreateFilterBank(channelCount);
             lowPassStage2 = CreateFilterBank(channelCount);
-            envelopeState = new float[channelCount];
+            envelopeStage = CreateFilterBank(channelCount);
         }
 
         if (keepHistory)
@@ -302,10 +320,10 @@ public class EMGFilter : MonoBehaviour
             highPassStage2[i].Reset();
             lowPassStage1[i].Reset();
             lowPassStage2[i].Reset();
+            envelopeStage[i].Reset();
         }
         historyWriteIndex = 0;
         historyCount = 0;
-        System.Array.Clear(envelopeState, 0, envelopeState.Length);
 
         if (!keepHistory || rawHistory == null)
             return;
@@ -333,14 +351,6 @@ public class EMGFilter : MonoBehaviour
         Rectified = 2,
         Envelope = 3
     }
-
-    private static float ComputeEnvelopeAlpha(float sampleRate, float cutoffHz)
-    {
-        float dt = 1f / Mathf.Max(sampleRate, 1f);
-        float rc = 1f / (2f * Mathf.PI * Mathf.Max(cutoffHz, 0.001f));
-        return dt / (rc + dt);
-    }
-
 
     // Definition of the Biquad class for the IIR filter implementation
     private sealed class Biquad

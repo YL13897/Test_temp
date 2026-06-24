@@ -24,6 +24,7 @@ public class ScoreManager : MonoBehaviour
     public double EmgTimestamp { get; private set; }
     public string EmgDetails { get; private set; }
     public float HandleFx { get; private set; }
+    public float TrackCost { get; private set; }
     public float WTrack { get; private set; }
     public float WForce { get; private set; }
     public float WEmg { get; private set; }
@@ -87,9 +88,10 @@ public class ScoreManager : MonoBehaviour
         IsScorePaused = paused;
     }
 
-    public void SetCompositeMetrics(float handleFx, float wTrack, float wForce, float wEmg, float totalCost)
+    public void SetCompositeMetrics(float handleFx, float trackCost, float wTrack, float wForce, float wEmg, float totalCost)
     {
         HandleFx = handleFx;
+        TrackCost = trackCost;
         WTrack = wTrack;
         WForce = wForce;
         WEmg = wEmg;
@@ -184,6 +186,7 @@ public class ScoreManager : MonoBehaviour
     void ResetCompositeMetrics()
     {
         HandleFx = 0f;
+        TrackCost = 0f;
         WTrack = 0f;
         WForce = 0f;
         WEmg = 0f;

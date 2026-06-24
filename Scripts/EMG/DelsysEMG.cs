@@ -62,6 +62,7 @@ public class DelsysEMG
     private readonly object dataLock = new object();
     private readonly object recordingLock = new object();
     private EMGFilter emgFilter;
+    private IEmgDebugSink debugSink;
     private EMGFilter.EmgSignalView signalView = EMGFilter.EmgSignalView.Envelope;
     private float scoreDownsampleHz = 100f;
     private double downSampleAccumulator = 0.0; // Accumulator for downsampling the score envelope output to a lower frequency.
@@ -122,6 +123,9 @@ public class DelsysEMG
 
     private string GetSignalLabel()
     {
+        if (emgFilter == null)
+            return "raw";
+
         switch (signalView)
         {
             case EMGFilter.EmgSignalView.Raw:
@@ -168,6 +172,8 @@ public class DelsysEMG
         scoreDownsampleHz = Mathf.Max(1f, scoreHz);
         if (emgFilter != null)
             emgFilter.Configure(tempSelectedEmgDataList.Length, samplingInterval > 0f ? 1f / samplingInterval : 1111.1111f);
+        else
+            Debug.LogWarning("Delsys-> EMGFilter missing; recording raw EMG.");
         sensorList.Clear();
         sensorList.Add("A", SensorTypes.SensorTrigno);
         sensorList.Add("D", SensorTypes.SensorTrigno);
@@ -182,6 +188,11 @@ public class DelsysEMG
     {
         get => signalView;
         set => signalView = value;
+    }
+
+    public void SetDebugSink(IEmgDebugSink sink)
+    {
+        debugSink = sink;
     }
 
 
@@ -543,7 +554,8 @@ public class DelsysEMG
                     for (int sn = 0; sn < 16; ++sn)
                         processingInputFrame[sn] = frame[sn];
 
-                    emgFilter.ProcessFrame(processingInputFrame, signalView, selectedOutputFrame, scoreEnvelopeFrame);
+                    emgFilter.ProcessFrame(processingInputFrame, signalView, selectedOutputFrame,
+                        scoreEnvelopeFrame, debugSink, acquisitionTime);
                 }
                 else
                 {

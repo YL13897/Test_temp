@@ -2656,6 +2656,7 @@ GameObject:
   - component: {fileID: 507810792}
   - component: {fileID: 507810795}
   - component: {fileID: 507810796}
+  - component: {fileID: 507810797}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -2778,7 +2779,7 @@ MonoBehaviour:
   unityCenterX: 0
   smooth: 0.25
   biasRecoverRate: 4
-  maxBias: 2
+  maxBias: 2.5
 --- !u!114 &507810791
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2794,7 +2795,6 @@ MonoBehaviour:
   targetRb: {fileID: 481331123}
   leaderRb: {fileID: 1812959193}
   sectionDuration: 4
-  CappedWidthX: 1
   penaltyValue: 500
   w_tr: 100
   w_emg: 100
@@ -2864,6 +2864,8 @@ MonoBehaviour:
   unityMode: 1
   hriModeCode: 2
   ctrlModeCode: 1
+  disturbanceForceMode: 0
+  manualDisturbanceForce: 5
   velHandleXDeadZone: 0.005
   velOpenLoopKp: 1
   velOpenLoopKd: 2.5
@@ -2939,7 +2941,6 @@ MonoBehaviour:
   listenPort: 25001
   sampleSendHz: 40
   lastReturnedEmgScale: 0
-  lastReturnedDisturbanceGain: 0
   lastReturnedThreshold: 0
   lastResponseNote: 
 --- !u!114 &507810796
@@ -2959,10 +2960,27 @@ MonoBehaviour:
   mode: 0
   weights: []
   bias: 0
-  spiWindowSec: 0.1
+  spiRest: 0
+  spiRef: 1
+  useSpiTriFilter: 1
+  spiTriWindowSec: 0.1
+  spiTauSec: 0.1
   logDebugCsv: 1
   debugCsvHz: 50
   debugCsvDir: D:\yixianglin\Desktop\PHRI_Data
+--- !u!114 &507810797
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 507810783}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b24f2199caf8e824bab946f2d39f1643, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::EmgDebugCsvLogger
+  outputDir: D:\yixianglin\Desktop\PHRI_Data
 --- !u!1 &512920198
 GameObject:
   m_ObjectHideFlags: 0
@@ -9628,7 +9646,7 @@ MonoBehaviour:
   sampleRateHz: 1111.1111
   highPassHz: 20
   lowPassHz: 450
-  envelopeHz: 15
+  envelopeHz: 10
   historySamples: 512
 --- !u!120 &1910340488
 LineRenderer:
@@ -9755,7 +9773,7 @@ MonoBehaviour:
   emgBridge: {fileID: 507810793}
   targetCanvas: {fileID: 1987703636}
   scopeRoot: {fileID: 1910340490}
-  showScopePlots: 1
+  showScopePlots: 0
   autoScale: 1
 --- !u!224 &1910340490
 RectTransform:
@@ -10473,7 +10491,6 @@ GameObject:
   - component: {fileID: 1987703636}
   - component: {fileID: 1987703635}
   - component: {fileID: 1987703634}
-  - component: {fileID: 1987703637}
   m_Layer: 5
   m_Name: EMGScopeCanvas
   m_TagString: Untagged
@@ -10565,18 +10582,6 @@ Canvas:
   m_SortingLayerID: 0
   m_SortingOrder: 0
   m_TargetDisplay: 1
---- !u!114 &1987703637
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1987703632}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 9033a4183bd0a384b85d1c46fa124df3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Hdf5LoadTester
 --- !u!1 &2008688939
 GameObject:
   m_ObjectHideFlags: 0
@@ -12128,6 +12133,10 @@ PrefabInstance:
     - target: {fileID: 1527562133913631950, guid: 2e25919f68102374b8c154c48793875b, type: 3}
       propertyPath: m_Name
       value: Rover
+      objectReference: {fileID: 0}
+    - target: {fileID: 5469136850692113817, guid: 2e25919f68102374b8c154c48793875b, type: 3}
+      propertyPath: redError
+      value: 4
       objectReference: {fileID: 0}
     - target: {fileID: 5469136850692113817, guid: 2e25919f68102374b8c154c48793875b, type: 3}
       propertyPath: leaderTransform
