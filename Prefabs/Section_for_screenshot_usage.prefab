@@ -10,7 +10,7 @@ GameObject:
   m_Component:
   - component: {fileID: 7542146203882420899}
   m_Layer: 9
-  m_Name: Section 1
+  m_Name: Section_for_screenshot_usage
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

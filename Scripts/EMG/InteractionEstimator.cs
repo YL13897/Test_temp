@@ -6,18 +6,20 @@ using UnityEngine;
 using UnityEngine.Serialization;
 using TMPro;
 
-// InteractionEstimator.cs estimates user-robot interaction force and stiffness modulation from EMG signals, and compares with force sensor readings if available.
-// Method A (EmgOnly mode) uses a weighted sum of normalized EMG envelopes to estimate both force proxy and stiffness modulation (SPI), which requires calibration of the weights and bias.
-// Method B (ForceSensorCci mode) uses the force sensor reading as the force proxy, and uses a simple antagonistic pair ratio as the SP.
-
 namespace CORC.Demo
 {
     public class InteractionEstimator : MonoBehaviour
     {
-        public enum Mode
+        public enum ForceSource
         {
-            EmgOnly = 0,
-            ForceSensorCci = 1
+            EmgRegression = 0,
+            ForceSensor = 1
+        }
+
+        public enum SpiSource
+        {
+            WeightedCoContraction = 0,
+            PairCci = 1
         }
 
         [Header("Refs")]
@@ -25,19 +27,16 @@ namespace CORC.Demo
         [SerializeField] private TMP_Text forceCmpText;
 
         [Header("Mode")]
-        [SerializeField] private Mode mode = Mode.ForceSensorCci;
+        [SerializeField] private ForceSource forceSource = ForceSource.ForceSensor;
+        [SerializeField] private SpiSource spiSource = SpiSource.WeightedCoContraction;
 
-        [Header("Method A")]
+        [Header("EMG Regression")]
         [SerializeField] private float[] weights = Array.Empty<float>();
         [SerializeField] private float bias = 0f;
         [SerializeField] private float spiRest = 0f;
         [SerializeField] private float spiRef = 1f;
 
         [Header("SPI Smoothing")]
-        // EMG pipeline:
-        // raw EMG -> [EMGFilter.cs] band-pass 20-450 Hz -> full-wave rectification -> 2nd-order low-pass envelope
-        // -> [DelsysEMG.cs] downsample to 100 Hz -> [InteractionEstimator.cs] computes SPI
-        // -> optional triangular SPI filter -> EMA SPI filter -> StiffnessCmd / EMG score.
         [SerializeField] private bool useSpiTriFilter = true;
         [SerializeField] private float spiTriWindowSec = 0.1f;
         [FormerlySerializedAs("spiWindowSec")]
@@ -45,7 +44,7 @@ namespace CORC.Demo
 
         [Header("Debug CSV")]
         [SerializeField] private bool logDebugCsv = false;
-        [SerializeField] private float debugCsvHz = 50f;
+        [SerializeField] private float debugCsvHz = 20f;
         [SerializeField] private string debugCsvDir = @"D:\yixianglin\Desktop\PHRI_Data";
 
         public float ForceProxy { get; private set; }
@@ -62,6 +61,7 @@ namespace CORC.Demo
         private bool hasLastSpi = false;
         private bool hasMethodACalibration = false;
         private bool loggedDefaultWeights = false;
+        private bool loggedMissingWeightedGroups = false;
         private float[] spiTriBuf = Array.Empty<float>();
         private int spiTriIndex = 0;
         private int spiTriCount = 0;
@@ -69,17 +69,24 @@ namespace CORC.Demo
         private double lastSpiT = 0.0;
         private bool hasSpiSmooth = false;
         private long lastEmgSeq = 0;
-        private Mode lastMode;
+        private ForceSource lastForceSource;
+        private SpiSource lastSpiSource;
         private readonly float[] emg = new float[6];
         private readonly int[] map = new int[6];
+        private readonly float[] norm = new float[6];
         private StreamWriter debugWriter;
         private float nextDebugT = 0f;
+        private float lastP = 0f;
+        private float lastN = 0f;
+        private float lastOldSpi = 0f;
+        private float lastEmgForceRaw = 0f;
 
         void Awake()
         {
             if (bridge == null)
                 bridge = FindFirstObjectByType<M2RoverBridge>();
-            lastMode = mode;
+            lastForceSource = forceSource;
+            lastSpiSource = spiSource;
             EnsureWeights();
         }
 
@@ -96,32 +103,15 @@ namespace CORC.Demo
 
                 bool hasEmg = bridge.TryGetScoreEmg(emg, map, out double emgT, out long emgSeq);
                 EnsureWeights();
-                if (mode != lastMode)
+                if (forceSource != lastForceSource || spiSource != lastSpiSource)
                 {
                     ClearSpi();
-                    lastMode = mode;
+                    lastForceSource = forceSource;
+                    lastSpiSource = spiSource;
                 }
 
-                if (mode == Mode.EmgOnly)
-                {
-                    if (!hasEmg)
-                    {
-                        lastEmgSeq = 0;
-                        SetForceFallback();
-                        SetSpiFallback();
-                        return;
-                    }
-                    if (emgSeq == lastEmgSeq)
-                        return;
-
-                    LogDefaultWeights(map);
-                    RefreshMethodA(emg, map, emgT, emgSeq);
-                }
-                else
-                {
-                    loggedDefaultWeights = false;
-                    RefreshMethodB(emg, map, hasEmg, emgT, emgSeq);
-                }
+                RefreshForce(hasEmg);
+                RefreshSpi(hasEmg, emgT, emgSeq);
             }
             finally
             {
@@ -138,8 +128,10 @@ namespace CORC.Demo
             if (channels != null)
             {
                 for (int i = 0; i < channels.Length; i++)
+                {
                     if (channels[i] > 0)
                         count++;
+                }
             }
 
             if (w != null && w.Length == weights.Length)
@@ -178,92 +170,182 @@ namespace CORC.Demo
             }
         }
 
-        private void RefreshMethodA(float[] emg, int[] map, double emgT, long emgSeq)
+        private void RefreshForce(bool hasEmg)
         {
-            int count = 0;
-            float force = bias;
-            float spi = 0f;
-
-            for (int i = 0; i < map.Length; i++)
+            if (forceSource == ForceSource.ForceSensor)
             {
-                if (map[i] <= 0 || i >= weights.Length) continue;
-                if (!TryGetNorm(emg, map, i, out float u)) continue;
-                force += weights[i] * u;
-                spi += Mathf.Abs(weights[i]) * u;
-                count++;
-            }
+                loggedDefaultWeights = false;
+                if (bridge.TryGetInteractionForceX(out float fx))
+                {
+                    ForceProxy = fx;
+                    HasValidForceProxy = true;
+                    lastForceProxy = fx;
+                    hasLastForceProxy = true;
+                    return;
+                }
 
-            if (count > 0)
-            {
-                ForceProxy = force;
-                Spi = SmoothSpi(spi + bias, emgT);
-                float spi01 = Mathf.Clamp01((Spi - spiRest) / Mathf.Max(spiRef - spiRest, 1e-6f));
-                StiffnessCmd = Mathf.Lerp(bridge.StiffnessMin, bridge.StiffnessMax, spi01);
-                EmgScore = 100f * (1f - spi01);
-                HasValidForceProxy = true;
-                HasValidSpi = true;
-                lastForceProxy = ForceProxy;
-                lastSpi = Spi;
-                lastK = StiffnessCmd;
-                hasLastForceProxy = true;
-                hasLastSpi = true;
-                lastEmgSeq = emgSeq;
-                return;
-            }
-
-            SetForceFallback();
-            SetSpiFallback();
-            lastEmgSeq = emgSeq;
-        }
-
-        private void RefreshMethodB(float[] emg, int[] map, bool hasEmg, double emgT, long emgSeq)
-        {
-            if (bridge.TryGetInteractionForceX(out float fx))
-            {
-                ForceProxy = fx;
-                HasValidForceProxy = true;
-                lastForceProxy = fx;
-                hasLastForceProxy = true;
-            }
-            else
-            {
                 SetForceFallback();
+                return;
             }
 
             if (!hasEmg)
             {
+                lastEmgForceRaw = 0f;
+                SetForceFallback();
+                return;
+            }
+
+            LogDefaultWeights(map);
+            float pos = 0f;
+            float neg = 0f;
+            bool hasPos = false;
+            bool hasNeg = false;
+
+            for (int i = 0; i < map.Length; i++)
+            {
+                if (!TryGetNorm(emg, map, i, out norm[i])) continue;
+                if (i >= weights.Length) continue;
+
+                float wi = weights[i];
+                if (float.IsNaN(wi) || float.IsInfinity(wi)) continue;
+                float aw = Mathf.Abs(wi);
+                if (aw <= 0f) continue;
+
+                if (wi > 0f)
+                {
+                    pos += aw * norm[i];
+                    hasPos = true;
+                }
+                else if (wi < 0f)
+                {
+                    neg += aw * norm[i];
+                    hasNeg = true;
+                }
+            }
+
+            lastEmgForceRaw = pos - neg;
+            ForceProxy = bias + lastEmgForceRaw;
+            if (hasPos || hasNeg)
+            {
+                HasValidForceProxy = true;
+                lastForceProxy = ForceProxy;
+                hasLastForceProxy = true;
+                return;
+            }
+
+            SetForceFallback();
+        }
+
+        private void RefreshSpi(bool hasEmg, double emgT, long emgSeq)
+        {
+            if (!hasEmg)
+            {
                 lastEmgSeq = 0;
+                lastP = 0f;
+                lastN = 0f;
+                lastOldSpi = 0f;
+                lastEmgForceRaw = 0f;
+                Array.Clear(norm, 0, norm.Length);
                 SetSpiFallback();
                 return;
             }
             if (emgSeq == lastEmgSeq)
                 return;
 
-            float spi = 0f;
-            int count = 0;
-            AddPair(ref spi, ref count, emg, map, 0, 1);
-            AddPair(ref spi, ref count, emg, map, 2, 3);
-            AddPair(ref spi, ref count, emg, map, 4, 5);
+            for (int i = 0; i < norm.Length; i++)
+                norm[i] = 0f;
+            for (int i = 0; i < map.Length && i < norm.Length; i++)
+                TryGetNorm(emg, map, i, out norm[i]);
 
-            if (count > 0)
+            float pos = 0f;
+            float neg = 0f;
+            float oldSpi = 0f;
+            bool hasPos = false;
+            bool hasNeg = false;
+
+            for (int i = 0; i < map.Length; i++)
             {
-                Spi = SmoothSpi(spi / count, emgT);
-                float spi01 = 0.5f * Spi;
-                StiffnessCmd = Mathf.Lerp(bridge.StiffnessMin, bridge.StiffnessMax, spi01);
-                EmgScore = 100f * (1f - spi01);
-                HasValidSpi = true;
-                lastSpi = Spi;
-                lastK = StiffnessCmd;
-                hasLastSpi = true;
+                if (!TryGetNorm(emg, map, i, out float u)) continue;
+                if (i >= weights.Length) continue;
+
+                float wi = weights[i];
+                if (float.IsNaN(wi) || float.IsInfinity(wi)) continue;
+                float aw = Mathf.Abs(wi);
+                if (aw <= 0f) continue;
+
+                oldSpi += aw * u;
+                if (wi > 0f)
+                {
+                    pos += aw * u;
+                    hasPos = true;
+                }
+                else if (wi < 0f)
+                {
+                    neg += aw * u;
+                    hasNeg = true;
+                }
+            }
+
+            lastP = pos;
+            lastN = neg;
+            lastOldSpi = oldSpi;
+            lastEmgForceRaw = pos - neg;
+
+            if (spiSource == SpiSource.PairCci)
+            {
+                loggedDefaultWeights = false;
+                float spi = 0f;
+                int count = 0;
+                AddPair(ref spi, ref count, emg, map, 0, 1);
+                AddPair(ref spi, ref count, emg, map, 2, 3);
+                AddPair(ref spi, ref count, emg, map, 4, 5);
+
+                if (count > 0)
+                {
+                    ApplySpi(spi / count, emgT, 0.5f);
+                    lastEmgSeq = emgSeq;
+                    return;
+                }
+
+                SetSpiFallback();
                 lastEmgSeq = emgSeq;
                 return;
             }
 
-            SetSpiFallback();
+            LogDefaultWeights(map);
+            if (!hasPos || !hasNeg)
+            {
+                if (!loggedMissingWeightedGroups)
+                {
+                    Debug.LogWarning("[InteractionEstimator] Weighted co-contraction needs valid positive and negative muscle groups.");
+                    loggedMissingWeightedGroups = true;
+                }
+                SetSpiFallback();
+                lastEmgSeq = emgSeq;
+                return;
+            }
+
+            loggedMissingWeightedGroups = false;
+            float spiCo = pos + neg - Mathf.Abs(pos - neg);
+            ApplySpi(spiCo, emgT, 1f);
             lastEmgSeq = emgSeq;
         }
 
-        // AddPair() computes a contribution to the SPI score from a pair of EMG channels (a,b) that are expected to be antagonistic.
+        private void ApplySpi(float rawSpi, double emgT, float normScale)
+        {
+            Spi = SmoothSpi(rawSpi, emgT);
+            float spi01 = Mathf.Clamp01((Spi - spiRest) / Mathf.Max(spiRef - spiRest, 1e-6f));
+            if (normScale != 1f)
+                spi01 = Mathf.Clamp01(spi01 * normScale);
+
+            StiffnessCmd = Mathf.Lerp(bridge.StiffnessMin, bridge.StiffnessMax, spi01);
+            EmgScore = 100f * (1f - spi01);
+            HasValidSpi = true;
+            lastSpi = Spi;
+            lastK = StiffnessCmd;
+            hasLastSpi = true;
+        }
+
         private void AddPair(ref float spi, ref int count, float[] emg, int[] map, int a, int b)
         {
             if (a >= map.Length || b >= map.Length) return;
@@ -300,7 +382,7 @@ namespace CORC.Demo
                 return false;
 
             u = Mathf.Clamp01((emg[slot] - rest) / range);
-            return true;
+            return !(float.IsNaN(u) || float.IsInfinity(u));
         }
 
         private void SetForceFallback()
@@ -338,8 +420,7 @@ namespace CORC.Demo
 
             float dt = (float)(t - lastSpiT);
             value = TriSpi(value, dt);
-            float tau = Mathf.Max(spiTauSec, 1e-6f);
-            float alpha = 1f - Mathf.Exp(-dt / tau);
+            float alpha = 1f - Mathf.Exp(-dt / Mathf.Max(spiTauSec, 1e-6f));
             spiSmooth += alpha * (value - spiSmooth);
             lastSpiT = t;
             return spiSmooth;
@@ -390,31 +471,29 @@ namespace CORC.Demo
             lastEmgSeq = 0;
         }
 
-        // EnsureWeights() checks if the weights array is properly initialized for the 6 EMG slots. 
-        // If not, it creates a new array and sets weights to 1 for any slot that has a configured EMG channel, and 0 for others.
         private void EnsureWeights()
         {
             if (weights != null && weights.Length == 6)
                 return;
 
             float[] next = new float[6];
-            int[] map = bridge != null ? bridge.GetConfiguredEmgChannels() : null;
+            int[] currentMap = bridge != null ? bridge.GetConfiguredEmgChannels() : null;
             for (int i = 0; i < next.Length; i++)
-                next[i] = map != null && i < map.Length && map[i] > 0 ? 1f : 0f;
+                next[i] = currentMap != null && i < currentMap.Length && currentMap[i] > 0 ? 1f : 0f;
             weights = next;
         }
 
-        private void LogDefaultWeights(int[] map)
+        private void LogDefaultWeights(int[] currentMap)
         {
-            if (hasMethodACalibration || loggedDefaultWeights || map == null)
+            if (hasMethodACalibration || loggedDefaultWeights || currentMap == null)
                 return;
 
             string[] names = { "cc11", "cc12", "cc21", "cc22", "cc31", "cc32" };
-            System.Text.StringBuilder sb = new System.Text.StringBuilder("Method A using default weights=1 for slots: ");
+            StringBuilder sb = new StringBuilder("Using default weights=1 for slots: ");
             bool first = true;
-            for (int i = 0; i < map.Length && i < names.Length; i++)
+            for (int i = 0; i < currentMap.Length && i < names.Length; i++)
             {
-                if (map[i] <= 0) continue;
+                if (currentMap[i] <= 0) continue;
                 if (!first) sb.Append(", ");
                 sb.Append(names[i]);
                 first = false;
@@ -428,7 +507,7 @@ namespace CORC.Demo
             if (forceCmpText == null)
                 return;
 
-            string emgText = mode == Mode.EmgOnly && HasValidForceProxy ? $"{ForceProxy:F1} N" : "-";
+            string emgText = forceSource == ForceSource.EmgRegression && HasValidForceProxy ? $"{ForceProxy:F1} N" : "-";
             string sensorText = bridge != null && bridge.TryGetInteractionForceX(out float fx) ? $"{fx:F1} N" : "-";
             forceCmpText.text = $"ForceCmp: EMG {emgText} | Sensor {sensorText}";
         }
@@ -453,17 +532,20 @@ namespace CORC.Demo
                 Directory.CreateDirectory(debugCsvDir);
                 string path = Path.Combine(debugCsvDir, $"InteractionEstimatorDebug_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
                 debugWriter = new StreamWriter(path, false, Encoding.ASCII);
-                debugWriter.WriteLine("unity_time,mode,k,force_proxy,force_sensor_x,has_force_proxy,has_sensor_force,spi,emg_score");
+                debugWriter.WriteLine("unity_time,u1,u2,u3,u4,u5,u6,p,n,spi_old,spi,force_emg_proxy,force_sensor_x,k,emg_score");
             }
 
             float sensorFx = 0f;
             bool hasSensor = bridge != null && bridge.TryGetInteractionForceX(out sensorFx);
-            string proxyText = HasValidForceProxy ? ForceProxy.ToString("F6", CultureInfo.InvariantCulture) : "";
+            string proxyText = hasMethodACalibration ? (bias + lastEmgForceRaw).ToString("F6", CultureInfo.InvariantCulture) : "";
             string sensorText = hasSensor ? sensorFx.ToString("F6", CultureInfo.InvariantCulture) : "";
             debugWriter.WriteLine(string.Format(
                 CultureInfo.InvariantCulture,
-                "{0:F4},{1},{2:F6},{3},{4},{5},{6},{7:F6},{8:F6}",
-                Time.time, mode, StiffnessCmd, proxyText, sensorText, HasValidForceProxy, hasSensor, Spi, EmgScore));
+                "{0:F4},{1:F6},{2:F6},{3:F6},{4:F6},{5:F6},{6:F6},{7:F6},{8:F6},{9:F6},{10:F6},{11},{12},{13:F6},{14:F6}",
+                Time.time,
+                norm[0], norm[1], norm[2], norm[3], norm[4], norm[5],
+                lastP, lastN, lastOldSpi, Spi, proxyText, sensorText,
+                StiffnessCmd, EmgScore));
         }
 
         private void CloseDebugCsv()

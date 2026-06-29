@@ -25,10 +25,12 @@ public class ForceFieldPreview : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
-        if (!other.CompareTag("Player")) return;
+        if (!other.transform.root.CompareTag("Player")) return;
+        ScoreManager.Instance?.BeginScoring();
+
         if (ExperimentBlockControl.Instance != null && ExperimentBlockControl.Instance.HasPreparedBlock)
         {
-            triggerProbability = ExperimentBlockControl.Instance.CurrentBlockProbability;
+            triggerProbability = ExperimentBlockControl.Instance.CurrentProbability;
             previewDirection = ExperimentBlockControl.Instance.CurrentDirection;
         }
 
@@ -39,7 +41,7 @@ public class ForceFieldPreview : MonoBehaviour
 
     void OnTriggerExit(Collider other)
     {
-        if (!other.CompareTag("Player")) return;
+        if (!other.transform.root.CompareTag("Player")) return;
         if (worldProbPanel != null)
             worldProbPanel.Hide();
     }

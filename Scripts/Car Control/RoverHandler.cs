@@ -18,6 +18,13 @@ public class RoverHandler : MonoBehaviour
     [SerializeField]
     float lateralDamping = 4.5f;
 
+    [Header("Boundary")]
+    public float minX = -4.5f;
+    public float maxX = 4.5f;
+    public bool enableBoundaryClamp = true;
+    [SerializeField] float boundaryTolerance = 0.02f;
+    public bool BoundaryContact { get; private set; }
+
     // readonly int logEveryNFrames = 50;
     // public float sideDamping = 0.0f;
 
@@ -60,6 +67,9 @@ public class RoverHandler : MonoBehaviour
     {
         if(Mathf.Abs(input.x) > 0)
         {
+            if (enableBoundaryClamp && ((rb.position.x <= minX && input.x < 0f) || (rb.position.x >= maxX && input.x > 0f)))
+                return;
+
             rb.AddForce(rb.transform.right * steeringMultiplier * input.x);
         }
     }
@@ -95,6 +105,7 @@ public class RoverHandler : MonoBehaviour
         if (isPaused)
         {
             Brake();
+            ClampBoundary();
             return;
         }
 
@@ -102,8 +113,38 @@ public class RoverHandler : MonoBehaviour
         else Brake();
 
         Steer();
+        ClampBoundary();
         // ApplyDamping();
     }
 
+    void ClampBoundary()
+    {
+        BoundaryContact = false;
+        if (!enableBoundaryClamp) return;
+
+        Vector3 pos = rb.position;
+        Vector3 vel = rb.linearVelocity;
+        float tolerance = Mathf.Max(0f, boundaryTolerance);
+        BoundaryContact = pos.x <= minX + tolerance || pos.x >= maxX - tolerance;
+        bool clamped = false;
+
+        if (pos.x <= minX)
+        {
+            pos.x = minX;
+            if (vel.x < 0f) vel.x = 0f;
+            clamped = true;
+        }
+        else if (pos.x >= maxX)
+        {
+            pos.x = maxX;
+            if (vel.x > 0f) vel.x = 0f;
+            clamped = true;
+        }
+
+        if (!clamped) return;
+
+        rb.position = pos;
+        rb.linearVelocity = vel;
+    }
 
 }

@@ -12,6 +12,7 @@ public class ScoreManager : MonoBehaviour
     [SerializeField] TextMeshProUGUI trackSectionScoreText;
     [SerializeField] TextMeshProUGUI forceSectionScoreText;
     [SerializeField] TextMeshProUGUI emgSectionScoreText;
+    [SerializeField] TextMeshProUGUI LastTotalScore;
     [SerializeField] Slider sectionBar;
 
     public float GlobalScore { get; private set; }
@@ -30,8 +31,10 @@ public class ScoreManager : MonoBehaviour
     public float WEmg { get; private set; }
     public float TotalCost { get; private set; }
     public bool HasStartedScoring { get; private set; }
+    public bool SectionScoringActive { get; private set; }
     public bool IsScorePaused { get; private set; }
-    private double nextPenaltytime = 0.0;
+    private bool boundaryPenaltyApplied;
+    private CORC.Demo.M2RoverBridge bridge;
 
     void Awake()
     {
@@ -43,6 +46,7 @@ public class ScoreManager : MonoBehaviour
 
         if (ScoreText != null) ScoreText.raycastTarget = false;
         if (emgScoreText != null) emgScoreText.raycastTarget = false;
+        bridge = FindFirstObjectByType<CORC.Demo.M2RoverBridge>();
 
         ResetAll();
     }
@@ -55,17 +59,17 @@ public class ScoreManager : MonoBehaviour
         EmgDetails = "";
         ResetCompositeMetrics();
         HasStartedScoring = false;
+        SectionScoringActive = false;
         IsScorePaused = false;
-        nextPenaltytime = 0.0;
         ResetSection();
+        SetLastTotalScore(0f);
         RefreshUI();
     }
 
     public void BeginScoring()
     {
-        if (HasStartedScoring) return;
         HasStartedScoring = true;
-        ResetSection();
+        SectionScoringActive = true;
     }
 
     public void SetEmgScore(float score, double timestamp)
@@ -105,6 +109,8 @@ public class ScoreManager : MonoBehaviour
         ForceSectionScore = 0f;
         ForceAvg = 0f;
         EmgSectionScore = 0f;
+        SectionScoringActive = false;
+        boundaryPenaltyApplied = false;
         ResetCompositeMetrics();
         if (sectionBar != null)
         {
@@ -125,7 +131,9 @@ public class ScoreManager : MonoBehaviour
         EmgSectionScore = 0f;
         ResetCompositeMetrics();
         HasStartedScoring = false;
-        nextPenaltytime = 0.0;
+        SectionScoringActive = false;
+        boundaryPenaltyApplied = false;
+        SetLastTotalScore(0f);
 
         if (sectionBar != null)
         {
@@ -172,15 +180,24 @@ public class ScoreManager : MonoBehaviour
         RefreshUI();
     }
 
-    public bool TryApplyBoundaryPenalty(float penalty, float cooldownSec)
+    public bool TryApplyBoundaryPenalty(float penalty)
     {
-        double now = Time.realtimeSinceStartupAsDouble;
-        float cooldown = Mathf.Max(0.5f, cooldownSec);
-        if (now < nextPenaltytime) return false;
+        if (boundaryPenaltyApplied) return false;
 
         ApplyBoundaryPenalty(Mathf.Abs(penalty));
-        nextPenaltytime = now + cooldown;
+        boundaryPenaltyApplied = true;
         return true;
+    }
+
+    public void UpdateLastTotalScore()
+    {
+        SetLastTotalScore(SectionScore);
+    }
+
+    void SetLastTotalScore(float score)
+    {
+        if (LastTotalScore != null)
+            LastTotalScore.text = $"Last Total: {score:0.00}";
     }
 
     void ResetCompositeMetrics()
@@ -208,6 +225,8 @@ public class ScoreManager : MonoBehaviour
 
     void RefreshUI()
     {
+        bool m2Mode = bridge != null && bridge.unityMode == CORC.Demo.M2RoverBridge.UnityDriveMode.Mode2_M2;
+
         if (ScoreText != null)
             ScoreText.text = $"Score: Global: {GlobalScore:0} | Section: {SectionScore:0}";
 
@@ -215,10 +234,10 @@ public class ScoreManager : MonoBehaviour
             trackSectionScoreText.text = $"Track Section: {TrackSectionScore:0.00}";
 
         if (forceSectionScoreText != null)
-            forceSectionScoreText.text = $"Force Section: {ForceSectionScore:0.00}";
+            forceSectionScoreText.text = m2Mode ? $"Force Section: {ForceSectionScore:0.00}" : "Force Section: ---";
 
         if (emgSectionScoreText != null)
-            emgSectionScoreText.text = $"EMG Section: {EmgSectionScore:0.00}";
+            emgSectionScoreText.text = m2Mode ? $"EMG Section: {EmgSectionScore:0.00}" : "EMG Section: ---";
         
         if (emgScoreText != null)
             emgScoreText.text = string.IsNullOrEmpty(EmgDetails)

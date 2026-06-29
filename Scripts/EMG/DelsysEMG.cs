@@ -593,7 +593,18 @@ public class DelsysEMG
             }
             catch (IOException e)
             {
-                Debug.Log(e.ToString());
+                MarkDisconnected("IOException during EMG stream read", e);
+                break;
+            }
+            catch (SocketException e)
+            {
+                MarkDisconnected("SocketException during EMG stream read", e);
+                break;
+            }
+            catch (ObjectDisposedException e)
+            {
+                MarkDisconnected("ObjectDisposedException during EMG stream read", e);
+                break;
             }
         }
 

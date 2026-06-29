@@ -87,7 +87,10 @@ namespace CORC.Demo
             if (confirmUnityModeBtn) confirmUnityModeBtn.interactable = true;
             if (confirmModeBtn) confirmModeBtn.interactable = true;
             if (confirmModeBtn1) confirmModeBtn1.interactable = true;
-            if (startExperimentBtn) startExperimentBtn.interactable = IsM2Mode && bginReady && !pendingHriApply && !pendingCtrlApply && CanStartBlock;
+            if (startExperimentBtn)
+                startExperimentBtn.interactable = IsM2Mode
+                    ? bginReady && !pendingHriApply && !pendingCtrlApply && CanStartBlock
+                    : blockControl != null && (!blockControl.HasPreparedBlock || CanStartBlock) && !blockControl.IsRoundComplete;
             if (returnWaitStartBtn) returnWaitStartBtn.interactable = IsM2Mode && bginReady;
             if (toAButton) toAButton.interactable = IsM2Mode;
             if (emergencyStopBtn) emergencyStopBtn.interactable = IsM2Mode;
@@ -305,6 +308,23 @@ namespace CORC.Demo
 
         private void OnStartExperiment()
         {
+            if (!IsM2Mode)
+            {
+                if (blockControl == null || blockControl.IsRoundComplete)
+                    return;
+
+                if (!blockControl.HasPreparedBlock)
+                    blockControl.PrepareRound();
+                if (!blockControl.CanStartPreparedBlock())
+                    return;
+
+                blockControl.NotifyBlockStarted();
+                bridge?.NotifyBlockBegin();
+                SetCommandButtonsInteractable();
+                if (statusTxt) SetStatus(Color.white, "Keyboard block in progress...");
+                return;
+            }
+
             if (proxy == null || !proxy.IsReady)
             {
                 Debug.LogWarning("[UI] Proxy not ready; skip start command");
@@ -545,6 +565,25 @@ namespace CORC.Demo
             // if (disturbanceTxt) disturbanceTxt.text = $"Disturbance: {ForceField.DisturbanceU:F1}";
             UpdateCalibrationText();
             UpdateKSlider();
+
+            if (!IsM2Mode)
+            {
+                SetCommandButtonsInteractable();
+
+                if (blockControl != null && blockControl.ShouldAutoPauseNow)
+                {
+                    bridge?.NotifyBlockEnd();
+                    blockControl.MarkAutoPauseRequested();
+                    blockControl.NotifyReturnWaitReady();
+                }
+
+                if (blockControl != null && blockControl.TryAdvancePendingCompletion())
+                {
+                    bridge?.ResetForNextExperimentBlock();
+                    SetCommandButtonsInteractable();
+                }
+                return;
+            }
 
             if (proxy == null || !proxy.IsReady)
             {

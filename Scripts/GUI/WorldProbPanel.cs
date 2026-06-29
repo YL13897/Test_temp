@@ -19,7 +19,7 @@ public class WorldProbPanel : MonoBehaviour
 
     public void Show(float probability, int direction)
     {
-        probabilityText.text = $"{(probability * 100f):0.00}%";
+        probabilityText.text = $"{Mathf.RoundToInt(probability * 100f)}%";
         SetArrowDirection(direction);
         canvasGroup.alpha = 1f;
         canvasGroup.interactable = false;

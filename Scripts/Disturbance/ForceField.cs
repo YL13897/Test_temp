@@ -71,14 +71,16 @@ public class ForceField : MonoBehaviour
         if (!HasPlayerEnteredAnyField)
         {
             HasPlayerEnteredAnyField = true;
-            OnFirstPlayerEnteredAnyField?.Invoke(); // Notify ScoreSystem to enable boundary clamp on first entry
+            OnFirstPlayerEnteredAnyField?.Invoke();
         }
 
         // Read the trigger probability for this force field from the ForceFieldPreview component.
         float Probability = forceFieldPreview.triggerProbability;
 
         // sample ONCE per section reuse
-        IsActiveThisRun = UnityEngine.Random.value < Probability;
+        IsActiveThisRun = ExperimentBlockControl.Instance != null
+            ? ExperimentBlockControl.Instance.TriggerDisturbance(Probability)
+            : UnityEngine.Random.value < Probability;
 
 
         // ----------------------- For testing: keep the field always active -----------------------

@@ -9,6 +9,7 @@ public class M2WorldFollower : MonoBehaviour
     public M2RoverBridge bridge;
     public Transform marker;
     public Rigidbody markerRb;
+    private RoverHandler rover;
 
     [Header("X Mapping (exact)")]
     [Tooltip("Unity X range.")]
@@ -38,6 +39,8 @@ public class M2WorldFollower : MonoBehaviour
         if (marker == null) marker = transform;
         if (markerRb == null && marker != null) markerRb = marker.GetComponent<Rigidbody>();
         if (bridge == null) bridge = FindFirstObjectByType<M2RoverBridge>();
+        rover = marker != null ? marker.GetComponent<RoverHandler>() : null;
+        if (rover == null && bridge != null) rover = bridge.rover;
     }
 
     void FixedUpdate()
@@ -187,8 +190,13 @@ public class M2WorldFollower : MonoBehaviour
     // ApplySmoothPosition: Smoothly move the marker towards the target position. The 'smooth' parameter controls the responsiveness.
     private void ApplySmoothPosition(Vector3 target)
     {
+        if (rover != null && rover.enableBoundaryClamp)
+            target.x = Mathf.Clamp(target.x, rover.minX, rover.maxX);
+
         float alpha = smooth > 0f ? 1f - Mathf.Pow(1f - smooth, Time.fixedDeltaTime * 60f) : 1f; // frame-rate independent smoothing
         lastPos = Vector3.Lerp(lastPos == Vector3.zero ? marker.position : lastPos, target, alpha); // use lastPos to avoid snapping on first frame
+        if (rover != null && rover.enableBoundaryClamp)
+            lastPos.x = Mathf.Clamp(lastPos.x, rover.minX, rover.maxX);
 
         Vector3 next = markerRb.position;
         next.x = lastPos.x;

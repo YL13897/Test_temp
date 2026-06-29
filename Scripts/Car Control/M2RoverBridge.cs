@@ -8,6 +8,12 @@ using UnityEngine.SceneManagement;
 using TMPro;
 
 /* 
+    Unity modes:
+    1. Keyboard mode is a local test mode for rover, block, probability, and tracking logic. 
+       a. Press T to toggle driving, and press ctrl+R to reset the rover position. 
+       b. To check the block setup, click the "Start Block" button to start a block, and click "End Block" to end it.
+    2. M2 mode is the experiment mode using M2 input, force, EMG, and communication.
+
     This component acts as a bridge between the CORC M2 robot and the Unity rover control, 
     allowing to drive the rover using M2 handle input and send realtime feedback forces to 
     M2 based on the rover state. 
@@ -434,7 +440,7 @@ namespace CORC.Demo
                 scoreLogRowsSinceFlush = 0;
                 if (!append)
                 {
-                    scoreLogWriter.WriteLine("global_t,x_rover,x_leader,handle_fx,track_cost,force_cost,emg_cost,block_index,section_index");
+                    scoreLogWriter.WriteLine("global_t,x_rover,x_leader,handle_fx,track_score,force_score,emg_score,total_score,block_index,section_index");
                     scoreLogWriter.Flush();
                 }
             }
@@ -499,11 +505,15 @@ namespace CORC.Demo
 
             bool hasText = emgScoreText != null;
 
-            bool active = delsysEnable && delsysEMG.IsConnected() && delsysEMG.IsRunning();
+            bool connected = delsysEMG.IsConnected();
+            bool running = delsysEMG.IsRunning();
+            bool active = delsysEnable && connected && running;
             if (!active)
             {
                 hasEmgFrame = false;
-                string inactiveText = $"EMGSc: -- | t: {Time.timeAsDouble:0.0}s";
+                string state = !delsysEnable ? "disabled" : (!connected ? "disconnected" : "stopped");
+                string inactiveText = $"EMG: {state} | EMGSc: -- | t: {Time.timeAsDouble:0.0}s";
+                activeEmgChannelsText = $"EMG: {state}";
                 if (hasText) emgScoreText.text = inactiveText;
                 ScoreManager.Instance?.SetEmgPreview(0f, Time.timeAsDouble, inactiveText);
                 return;
@@ -670,9 +680,10 @@ namespace CORC.Demo
                 .Append(xRover.ToString("F6")).Append(',')
                 .Append(xLeader.ToString("F6")).Append(',')
                 .Append(ScoreManager.Instance.HandleFx.ToString("F6")).Append(',')
-                .Append(ScoreManager.Instance.TrackCost.ToString("F6")).Append(',')
-                .Append(ScoreManager.Instance.WForce.ToString("F6")).Append(',')
-                .Append(ScoreManager.Instance.WEmg.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.TrackSectionScore.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.ForceSectionScore.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.EmgSectionScore.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.SectionScore.ToString("F6")).Append(',')
                 .Append(blockIndex).Append(',')
                 .Append(sectionIndex);
 
@@ -737,21 +748,19 @@ namespace CORC.Demo
             if (ctrlChanged) syncRefReady = false;
         }
 
-        // This should be called when Unity receives the block-begin event from the M2 flow.
+        // Start Unity-side block state after an M2 acknowledgement or a local keyboard start.
         public void NotifyBlockBegin()
         {
+            blockActive = true;
             if (unityMode == UnityDriveMode.Mode2_M2)
-            {
-                blockActive = true;
                 syncRefReady = false; 
-                if (!isPaused) isDriving = true;
-                worldFollower?.ResetBias();
-                recStarted = false;
+            if (!isPaused) isDriving = true;
+            worldFollower?.ResetBias();
+            recStarted = false;
 
-                emgSessionFilePath = null;
+            emgSessionFilePath = null;
 
-                if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(false);
-            }
+            if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(false);
         }
 
         // This should be called when the current block ends.
@@ -763,7 +772,7 @@ namespace CORC.Demo
 
             blockActive = false;
             syncRefReady = false;
-            if (unityMode == UnityDriveMode.Mode2_M2 && isDriving) isDriving = false;
+            if (isDriving) isDriving = false;
             worldFollower?.ResetBias();
             hasSentDisturbanceState = false;
             lastDisturbanceState = false;
@@ -1116,7 +1125,7 @@ namespace CORC.Demo
             leader.SetDriving(isDriving && !isPaused);
 
             if (ScoreManager.Instance != null)
-                ScoreManager.Instance.SetScorePaused(isPaused || (unityMode == UnityDriveMode.Mode2_M2 && !blockActive));
+                ScoreManager.Instance.SetScorePaused(isPaused || !blockActive);
 
             ApplyEmgRuntimeSettings();
             estimator?.Refresh();
