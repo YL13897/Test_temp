@@ -218,15 +218,13 @@ public class ExperimentBlockControl : MonoBehaviour
     public void PrepareRound()
     {
         currentBlockIndex = Mathf.Clamp(startBlockIdx - 1, 0, TotalBlocks - 1);
-        pendingStartSectionOffset = Mathf.Clamp(startSectionIdx - 1, 0, SectionsPerBlock - 1);
-        sectionInBlock = pendingStartSectionOffset - 1;
         blockRunning = false;
         autoPauseAtTime = -1f;
         nextBlockStartAt = -1f;
         waitingForReturnAck = false;
         receivedReturnAck = false;
         hasActiveSection = false;
-        PrepareCurrentBlock();
+        PrepareCurrentBlock(Mathf.Clamp(startSectionIdx - 1, 0, SectionsPerBlock - 1));
     }
 
     // ResetRoundState(): Clear everything and exit the round state.
@@ -344,12 +342,12 @@ public class ExperimentBlockControl : MonoBehaviour
     }
 
     // PrepareCurrentBlock(): To set up the lane sequence for the currently prepared block based on the configured probabilities and section counts.
-    void PrepareCurrentBlock()
+    void PrepareCurrentBlock(int startOffset = 0)
     {
         if (!HasPreparedBlock) return;
 
         BuildCurrentBlockSections();
-        pendingStartSectionOffset = 0;
+        pendingStartSectionOffset = Mathf.Clamp(startOffset, 0, SectionsPerBlock - 1);
         sectionInBlock = pendingStartSectionOffset - 1;
         blockRunning = false;
         autoPauseAtTime = -1f;
