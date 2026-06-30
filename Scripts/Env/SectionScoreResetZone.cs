@@ -25,6 +25,12 @@ public class SectionScoreResetZone : MonoBehaviour
 
         if (ScoreManager.Instance == null) return;
 
+        if (name == "ScoringZone")
+        {
+            ScoreManager.Instance.BeginScoring();
+            return;
+        }
+
         if (transform.root.name.StartsWith("Section_BGIN")) 
             return; 
 

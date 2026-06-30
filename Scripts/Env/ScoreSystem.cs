@@ -9,13 +9,14 @@ public class ScoreSystem : MonoBehaviour
     [SerializeField] Rigidbody leaderRb;
 
     [Header("Scoring Parameters")]
-    [SerializeField] float scoreDuration = 2.4f;
+    const float scoreDuration = 1.7f;
     public float penaltyValue = 500f;
 
     [Header("Composite Score Weights")]
     [SerializeField]  float w_tr = 100f; // Total tracking reward for an episode
     [SerializeField]  float w_emg = 100f; // Total EMG reward for an episode
     [SerializeField]  float fRef = 10f; // Reference force for normalizing the force cost
+    [SerializeField]  float fDead = 2f; // Ignore small handle contact force in scoring
 
     private CORC.Demo.M2RoverBridge bridge;
     private RoverHandler rover;
@@ -80,7 +81,7 @@ public class ScoreSystem : MonoBehaviour
         bool m2Mode = bridge != null && bridge.unityMode == CORC.Demo.M2RoverBridge.UnityDriveMode.Mode2_M2;
         float handleFx = m2Mode ? GetForceSensorX() : 0f;
         const float trackEps = 0.02f;
-        float trackZeroError = 0.25f * 8.5f; // 25% of the total tracking range (8.5)
+        float trackZeroError = 0.25f * 8.5f; // 25% of the total tracking range (8.5). This is where the tracking score rate is zero.
         float trackNormaliser = Mathf.Sqrt(trackZeroError * trackZeroError + trackEps * trackEps) - trackEps;
         float trackSmoothAbs = Mathf.Sqrt(e * e + trackEps * trackEps) - trackEps;
         float trackCost = w_tr * trackSmoothAbs / Mathf.Max(trackNormaliser, 0.0001f);
@@ -88,16 +89,17 @@ public class ScoreSystem : MonoBehaviour
         bool emgReady = bridge != null && bridge.HasValidSpi;
         float emgQuality = emgReady
             ? Mathf.Clamp01(bridge.EmgEffortScore / 100f)
-            : 1f;
+            : 0f;
 
         float wTrack = trackReward / scoreDuration;
-        float wEmg = m2Mode ? w_emg * emgQuality / scoreDuration : 0f;
+        float wEmg = w_emg * emgQuality / scoreDuration;
 
         float dt = Time.fixedDeltaTime;
         forceInt += Mathf.Abs(handleFx) * dt;
         forceTime += dt;
         float fAvg = forceTime > 0f ? forceInt / forceTime : 0f;
-        float forceQuality = 1f - Mathf.Abs(handleFx) / fRef;
+        float forceEff = Mathf.Max(0f, Mathf.Abs(handleFx) - fDead);
+        float forceQuality = 1f - forceEff / fRef;
         float wForce = m2Mode ? 100f * forceQuality / scoreDuration : 0f;
         float totalCost = wTrack + wForce + wEmg; 
         float trackDelta = wTrack * Time.fixedDeltaTime;
@@ -145,4 +147,5 @@ public class ScoreSystem : MonoBehaviour
 
         return leaderRb.position.x;
     }
+
 }

@@ -21,8 +21,8 @@ public class ExperimentBlockControl : MonoBehaviour
     [Header("Block Config")]
     [SerializeField] float RecoverySeconds = 0.8f;
     [SerializeField] bool addFixedBlocks = true;
-    [SerializeField] bool useFixSequence = true;
-    [SerializeField] int triggerSeed = 12345;
+    [SerializeField] bool useFixSequence = false;
+    [SerializeField] bool useTestSequence = false;
     [SerializeField] float[] blockProbabilities =
     {
         1f / 32f,
@@ -35,6 +35,10 @@ public class ExperimentBlockControl : MonoBehaviour
         15f / 16f,
         31f / 32f
     };
+
+
+    // ============================ 40 Trials setting ==================================
+
     // One 40-trial line per regular block; each digit indexes blockProbabilities (0-8).
     [SerializeField, HideInInspector] string randomSequence =
         "6803210558315456645447671730105166454406" +
@@ -58,6 +62,36 @@ public class ExperimentBlockControl : MonoBehaviour
         "2330032010300213310220000322033202031001" +
         "1312000011301030232110010033110220322110";
 
+
+
+// ============================ 20 Trials setting ==================================
+
+    // Short 20-trial test sequence; each line is one regular block.
+    [SerializeField, HideInInspector] string testRandomSequence =
+        "72610880445177532631" +
+        "14483145047302600638" +
+        "45075250045826277201" +
+        "02481255811678237102" +
+        "87214183658237846786" +
+        "14711168831826065160" +
+        "73565540766225737433" +
+        "37326236651832756838" +
+        "74054802344010304554";
+    // Aligned short case codes: 0=Left/LF, 1=Right/RF, 2=Left/RF, 3=Right/LF.
+    [SerializeField, HideInInspector] string testCaseSequence =
+        "10201232222220100020" +
+        "10110210130313002123" +
+        "31011203313103103111" +
+        "00202301033132211233" +
+        "12130021220122331231" +
+        "03321112331210200330" +
+        "03201300133033011021" +
+        "03232213220002222031" +
+        "30231112012333323032";
+
+// ============================================================================
+    
+    
     [Header("Episode Mix")]
     [SerializeField] int leftLfCount = 10;
     [SerializeField] int rightRfCount = 10;
@@ -89,7 +123,6 @@ public class ExperimentBlockControl : MonoBehaviour
     int pendingStartSectionOffset = 0; // Used for resuming within a block.
     bool hasActiveSection = false;
     readonly List<SectionSpec> currentBlockSections = new List<SectionSpec>();
-    
 
     public float CurrentProbability
     {
@@ -111,7 +144,7 @@ public class ExperimentBlockControl : MonoBehaviour
 
             int section = Mathf.Clamp(hasActiveSection ? sectionInBlock : sectionInBlock + 1, 0, SectionsPerBlock - 1);
             int trial = block * SectionsPerBlock + section;
-            int probability = randomSequence[trial] - '0';
+            int probability = ActiveRandomSequence[trial] - '0';
             return Mathf.Clamp01(blockProbabilities[probability]);
         }
     }
@@ -140,17 +173,24 @@ public class ExperimentBlockControl : MonoBehaviour
     {
         int section = Mathf.Clamp(hasActiveSection ? sectionInBlock : sectionInBlock + 1, 0, SectionsPerBlock - 1);
         int trial = currentBlockIndex * SectionsPerBlock + section;
-        int seed = unchecked(triggerSeed + trial * 486187739);
+        // A stable but different random draw for each trial.
+        int seed = unchecked(GlobalRandomSeed.Seed + trial);
         return new System.Random(seed).NextDouble() < Mathf.Clamp01(probability);
     }
     
     int SectionsPerBlock 
     {
         get {
-            int total = leftLfCount + rightRfCount + leftRfCount + rightLfCount;
+            int total = ActiveLeftLfCount + ActiveRightRfCount + ActiveLeftRfCount + ActiveRightLfCount;
             return total < 1 ? 1 : total;
         }
     }
+    int ActiveLeftLfCount => useTestSequence ? 5 : leftLfCount;
+    int ActiveRightRfCount => useTestSequence ? 5 : rightRfCount;
+    int ActiveLeftRfCount => useTestSequence ? 5 : leftRfCount;
+    int ActiveRightLfCount => useTestSequence ? 5 : rightLfCount;
+    string ActiveRandomSequence => useTestSequence ? testRandomSequence : randomSequence;
+    string ActiveCaseSequence => useTestSequence ? testCaseSequence : caseSequence;
 
     void Awake()
     {
@@ -355,7 +395,7 @@ public class ExperimentBlockControl : MonoBehaviour
             int start = block * SectionsPerBlock;
             for (int i = 0; i < SectionsPerBlock; i++)
             {
-                char value = caseSequence[start + i];
+                char value = ActiveCaseSequence[start + i];
                 float x = value == '0' || value == '2' ? leader.LeftLaneX : leader.RightLaneX;
                 int direction = value == '0' || value == '3' ? -1 : 1;
                 currentBlockSections.Add(new SectionSpec(x, direction));
@@ -363,13 +403,13 @@ public class ExperimentBlockControl : MonoBehaviour
             return;
         }
 
-        for (int i = 0; i < leftLfCount; i++)
+        for (int i = 0; i < ActiveLeftLfCount; i++)
             currentBlockSections.Add(new SectionSpec(leader.LeftLaneX, -1));
-        for (int i = 0; i < rightRfCount; i++)
+        for (int i = 0; i < ActiveRightRfCount; i++)
             currentBlockSections.Add(new SectionSpec(leader.RightLaneX, 1));
-        for (int i = 0; i < leftRfCount; i++)
+        for (int i = 0; i < ActiveLeftRfCount; i++)
             currentBlockSections.Add(new SectionSpec(leader.LeftLaneX, 1));
-        for (int i = 0; i < rightLfCount; i++)
+        for (int i = 0; i < ActiveRightLfCount; i++)
             currentBlockSections.Add(new SectionSpec(leader.RightLaneX, -1));
 
         if (currentBlockSections.Count == 0)

@@ -19,20 +19,27 @@ public class ForceFieldPreview : MonoBehaviour
 
     void Awake()
     {
-        if (worldProbPanel == null)
+        if (name != "ScoringZone" && worldProbPanel == null)
             worldProbPanel = FindFirstObjectByType<WorldProbPanel>();
     }
 
     void OnTriggerEnter(Collider other)
     {
         if (!other.transform.root.CompareTag("Player")) return;
-        ScoreManager.Instance?.BeginScoring();
+
+        if (name == "ScoringZone")
+        {
+            ScoreManager.Instance?.BeginScoring();
+            return;
+        }
 
         if (ExperimentBlockControl.Instance != null && ExperimentBlockControl.Instance.HasPreparedBlock)
         {
             triggerProbability = ExperimentBlockControl.Instance.CurrentProbability;
             previewDirection = ExperimentBlockControl.Instance.CurrentDirection;
         }
+
+        ScoreManager.Instance?.HideTrialScore();
 
         if (worldProbPanel != null)
             worldProbPanel.Show(triggerProbability, previewDirection);
@@ -42,6 +49,7 @@ public class ForceFieldPreview : MonoBehaviour
     void OnTriggerExit(Collider other)
     {
         if (!other.transform.root.CompareTag("Player")) return;
+        if (name == "ScoringZone") return;
         if (worldProbPanel != null)
             worldProbPanel.Hide();
     }

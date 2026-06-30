@@ -22,7 +22,8 @@ public class EndlessRoad : MonoBehaviour
 
     WaitForSeconds waitFor100ms = new WaitForSeconds(0.1f);
 
-    const float sectionLength = 200;
+    const float sectionLength = 300;
+    const float beginSectionOffset = 200;
 
     // public Material roadMat;
     // public float speed = 1;
@@ -106,11 +107,11 @@ public class EndlessRoad : MonoBehaviour
 
     void BuildPooledSections(float beginZ)
     {
-        int pooledStartOffset = beginSection != null ? 2 : 1;
+        float firstZ = beginZ + (beginSection != null ? beginSectionOffset : 0f);
         for (int i = 0; i < sections.Length; i++)
         {
             GameObject randomSection = GetSectionFromPool();
-            randomSection.transform.position = new Vector3(randomSection.transform.position.x, 0, beginZ + (i + pooledStartOffset - 1) * sectionLength);
+            randomSection.transform.position = new Vector3(randomSection.transform.position.x, 0, firstZ + i * sectionLength);
             randomSection.SetActive(true);
             sections[i] = randomSection;
         }
