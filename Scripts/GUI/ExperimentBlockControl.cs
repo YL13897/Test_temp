@@ -39,7 +39,8 @@ public class ExperimentBlockControl : MonoBehaviour
 
     // ============================ 40 Trials setting ==================================
 
-    // One 40-trial line per regular block; each digit indexes blockProbabilities (0-8).
+    // One 40-trial segment per rest block.
+    // Probability indices and case codes are randomized globally across all 360 trials.
     [SerializeField, HideInInspector] string randomSequence =
         "6803210558315456645447671730105166454406" +
         "1651180305627481384230737863518653205784" +
@@ -66,7 +67,8 @@ public class ExperimentBlockControl : MonoBehaviour
 
 // ============================ 20 Trials setting ==================================
 
-    // Short 20-trial test sequence; each line is one regular block.
+    // One 20-trial segment per rest block.
+    // Probability indices and case codes are randomized globally across all 180 trials.
     [SerializeField, HideInInspector] string testRandomSequence =
         "72610880445177532631" +
         "14483145047302600638" +
@@ -444,13 +446,13 @@ public class ExperimentBlockControl : MonoBehaviour
         {
             if (!HasPreparedBlock || IsRoundComplete)
             {
-                sectionIndexText.text = "Block: -- | Section: --";
+                sectionIndexText.text = "Block: -- | Trial: --";
             }
             else
             {
                 int displaySection = hasActiveSection ? sectionInBlock + 1 : sectionInBlock + 2;
                 displaySection = Mathf.Clamp(displaySection, 1, SectionsPerBlock);
-                sectionIndexText.text = $"Block: {CurrentBlockNumber}/{TotalBlocks} | Section: {displaySection}/{SectionsPerBlock}";
+                sectionIndexText.text = $"Block: {CurrentBlockNumber}/{TotalBlocks} | Trial: {displaySection}/{SectionsPerBlock}";
             }
         }
 

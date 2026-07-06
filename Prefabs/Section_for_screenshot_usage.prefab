@@ -411,10 +411,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ForceField
   forceFieldPreview: {fileID: 498647884616188714}
-  targetRb: {fileID: 0}
-  bridge: {fileID: 0}
-  forceMagnitude: 5000
-  fixedDirection: {x: -1, y: 0, z: 0}
 --- !u!1 &9142322625296590911
 GameObject:
   m_ObjectHideFlags: 0

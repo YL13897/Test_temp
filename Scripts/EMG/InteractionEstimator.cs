@@ -78,7 +78,6 @@ namespace CORC.Demo
         private float nextDebugT = 0f;
         private float lastP = 0f;
         private float lastN = 0f;
-        private float lastOldSpi = 0f;
         private float lastEmgForceRaw = 0f;
 
         void Awake()
@@ -243,7 +242,6 @@ namespace CORC.Demo
                 lastEmgSeq = 0;
                 lastP = 0f;
                 lastN = 0f;
-                lastOldSpi = 0f;
                 lastEmgForceRaw = 0f;
                 Array.Clear(norm, 0, norm.Length);
                 SetSpiFallback();
@@ -259,7 +257,6 @@ namespace CORC.Demo
 
             float pos = 0f;
             float neg = 0f;
-            float oldSpi = 0f;
             bool hasPos = false;
             bool hasNeg = false;
 
@@ -273,7 +270,6 @@ namespace CORC.Demo
                 float aw = Mathf.Abs(wi);
                 if (aw <= 0f) continue;
 
-                oldSpi += aw * u;
                 if (wi > 0f)
                 {
                     pos += aw * u;
@@ -288,7 +284,6 @@ namespace CORC.Demo
 
             lastP = pos;
             lastN = neg;
-            lastOldSpi = oldSpi;
             lastEmgForceRaw = pos - neg;
 
             if (spiSource == SpiSource.PairCci)
@@ -532,7 +527,7 @@ namespace CORC.Demo
                 Directory.CreateDirectory(debugCsvDir);
                 string path = Path.Combine(debugCsvDir, $"InteractionEstimatorDebug_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
                 debugWriter = new StreamWriter(path, false, Encoding.ASCII);
-                debugWriter.WriteLine("unity_time,u1,u2,u3,u4,u5,u6,p,n,spi_old,spi,force_emg_proxy,force_sensor_x,k,emg_score");
+                debugWriter.WriteLine("unity_time,u1,u2,u3,u4,u5,u6,p,n,spi,force_emg_proxy,force_sensor_x,k,emg_score");
             }
 
             float sensorFx = 0f;
@@ -541,10 +536,10 @@ namespace CORC.Demo
             string sensorText = hasSensor ? sensorFx.ToString("F6", CultureInfo.InvariantCulture) : "";
             debugWriter.WriteLine(string.Format(
                 CultureInfo.InvariantCulture,
-                "{0:F4},{1:F6},{2:F6},{3:F6},{4:F6},{5:F6},{6:F6},{7:F6},{8:F6},{9:F6},{10:F6},{11},{12},{13:F6},{14:F6}",
+                "{0:F4},{1:F6},{2:F6},{3:F6},{4:F6},{5:F6},{6:F6},{7:F6},{8:F6},{9:F6},{10},{11},{12:F6},{13:F6}",
                 Time.time,
                 norm[0], norm[1], norm[2], norm[3], norm[4], norm[5],
-                lastP, lastN, lastOldSpi, Spi, proxyText, sensorText,
+                lastP, lastN, Spi, proxyText, sensorText,
                 StiffnessCmd, EmgScore));
         }
 

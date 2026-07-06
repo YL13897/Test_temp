@@ -12,6 +12,7 @@ public class ScoreManager : MonoBehaviour
     [SerializeField] TextMeshProUGUI TrialScoreText;
     [SerializeField] TextMeshProUGUI DebugTrialScoreText;
     [SerializeField] bool alwaysShowTrialScore = false;
+    [SerializeField] bool showTotalOnly = false;
     [SerializeField] Slider sectionBar;
 
     public float GlobalScore { get; private set; }
@@ -210,7 +211,7 @@ public class ScoreManager : MonoBehaviour
     {
         if (TrialScoreText == null) return;
 
-        TrialScoreText.text = FormatTrialScore(live);
+        TrialScoreText.text = FormatTrialScore(live, showTotalOnly);
         TrialScoreText.gameObject.SetActive(true);
     }
 
@@ -241,12 +242,15 @@ public class ScoreManager : MonoBehaviour
         TotalCost = 0f;
     }
 
-    string FormatTrialScore(bool live)
+    string FormatTrialScore(bool live, bool totalOnly = false)
     {
         float track = live ? TrackSectionScore : lastTrackScore;
         float force = live ? ForceSectionScore : lastForceScore;
         float emg = live ? EmgSectionScore : lastEmgScore;
         float total = live ? SectionScore : lastTotalScore;
+
+        if (totalOnly)
+            return $"Total: {total:0.0}";
 
         return
             $"Track: {track:0.0}\n" +

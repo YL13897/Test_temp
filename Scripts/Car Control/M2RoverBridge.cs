@@ -162,6 +162,8 @@ namespace CORC.Demo
         private bool emgShutdown = false; // Flag to indicate whether EMG has been shut down, to prevent multiple shutdown attempts.
         private bool hasEmgFrame = false; // Whether we have received at least one frame of EMG data, used to determine if EMG preview can be shown in the UI.
         private double nextEmgUpdateTime = 0.0; // To control the update rate of EMG preview in the UI, we track the next allowed update time based on the specified preview Hz rate.
+        private float nextEmgReconnectTime = 0f;
+        private const float emgReconnectDelay = 5f;
         private string emgSessionFilePath;
         private string scoreLogSessionFilePath;
         private StreamWriter scoreLogWriter;
@@ -174,6 +176,22 @@ namespace CORC.Demo
         private void ApplyEmgRuntimeSettings()
         {
             delsysEMG.SignalView = emgSignalMode;
+        }
+
+        private bool TryConnectEmg()
+        {
+            nextEmgReconnectTime = Time.unscaledTime + emgReconnectDelay;
+            if (!delsysEMG.Connect())
+                return false;
+
+            delsysEMG.StartAcquisition();
+            if (!delsysEMG.IsRunning())
+                return false;
+
+            if (!HasValidEmgMapping())
+                ApplyDefaultEmgMapping();
+            Debug.LogWarning("Delsys EMG connected and acquisition started.");
+            return true;
         }
 
         #region Private methods
@@ -652,13 +670,7 @@ namespace CORC.Demo
                 delsysEMG.SetDebugSink(GetComponent<EmgDebugCsvLogger>());
                 delsysEMG.Init(emgFilter, emgScoreDownsampleHz);
                 ApplyEmgRuntimeSettings();
-                bool connected = delsysEMG.Connect();
-                if (connected){
-                    delsysEMG.StartAcquisition();
-                    ApplyDefaultEmgMapping();
-                    Debug.LogWarning("Delsys EMG initialized and acquisition started.");
-                }
-                else
+                if (!TryConnectEmg())
                     Debug.LogWarning("[M2RoverBridge] EMG init failed: cannot connect to Delsys server.");
             }
             #endregion
@@ -939,6 +951,7 @@ namespace CORC.Demo
             Vector3 pos = roverTransform.position;
             pos.x = targetX;
             roverTransform.position = pos;
+            // Debug.Log($"time={Time.time:F3}s, deltatime={Time.deltaTime:F3}s");
 
             if (roverRigidbody != null)
             {
@@ -1064,6 +1077,9 @@ namespace CORC.Demo
             //     roverTransform = rover.transform;
             // if (rover != null && roverRigidbody == null)
             //     roverRigidbody = rover.GetComponent<Rigidbody>();
+
+            if (delsysEnable && !blockActive && !IsEmgReady() && Time.unscaledTime >= nextEmgReconnectTime)
+                TryConnectEmg();
 
             bool connectedNow = m2 != null && m2.IsInitialised() && m2.Client != null && m2.Client.IsConnected();
 

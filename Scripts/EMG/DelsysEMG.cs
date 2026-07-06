@@ -29,6 +29,8 @@ public class DelsysEMG
     private TcpClient emgSocket;
     private const int commandPort = 50040;  //server command port
     private const int emgDataPort = 50043; //server emg data port
+    private const int commandTimeoutMs = 3000;
+    private const int dataTimeoutMs = 30000;
 
     //The following are streams and readers/writers for communication
     private NetworkStream commandStream;
@@ -72,8 +74,8 @@ public class DelsysEMG
     private long scoreEnvelopeSeq = 0;
 
     //Sensor status
-    private bool connected = false; //true if connected to server
-    private bool running = false;   //true when acquiring data
+    private volatile bool connected = false; //true if connected to server
+    private volatile bool running = false;   //true when acquiring data
     private bool recording = false; //for EMG data recording
     
 
@@ -119,6 +121,27 @@ public class DelsysEMG
             recordingSec = 0;
             recordingWriter.Close();
         }
+    }
+
+    private void CloseDataSocket()
+    {
+        try { emgStream?.Close(); } catch { }
+        try { emgSocket?.Close(); } catch { }
+        emgStream = null;
+        emgSocket = null;
+    }
+
+    private void CloseSockets()
+    {
+        CloseDataSocket();
+        try { commandReader?.Close(); } catch { }
+        try { commandWriter?.Close(); } catch { }
+        try { commandStream?.Close(); } catch { }
+        try { commandSocket?.Close(); } catch { }
+        commandReader = null;
+        commandWriter = null;
+        commandStream = null;
+        commandSocket = null;
     }
 
     private string GetSignalLabel()
@@ -199,12 +222,19 @@ public class DelsysEMG
     //Establish sensors connnection
     public bool Connect()
     {
+        running = false;
+        CloseSockets();
+        if (emgThread != null && emgThread.IsAlive)
+            emgThread.Join(commandTimeoutMs);
+        emgThread = null;
         ResetLocalState();
 
         try
         {
             //Establish TCP/IP connection to server using URL entered
             commandSocket = new TcpClient("localhost", commandPort);
+            commandSocket.ReceiveTimeout = commandTimeoutMs;
+            commandSocket.SendTimeout = commandTimeoutMs;
 
             //Set up communication streams
             commandStream = commandSocket.GetStream();
@@ -224,6 +254,7 @@ public class DelsysEMG
             //connection failed, display error message
             Debug.Log("Delsys-> Could not connect.\n" + connectException.Message);
             connected = false;
+            CloseSockets();
             return connected;
         }
 
@@ -233,9 +264,14 @@ public class DelsysEMG
         {
             string query = "SENSOR " + i + " " + COMMAND_SENSOR_TYPE;
             string response = SendCommand(query);
+            if (!connected)
+                return false;
             // Debug.Log("Delsys-> " + query);
             // Debug.Log("<- Server Delsys " + response);
-            _sensors.Add(response.Contains("INVALID") ? SensorTypes.NoSensor : sensorList[response]);
+            response = response.Trim();
+            _sensors.Add(response.Contains("INVALID") || !sensorList.TryGetValue(response, out SensorTypes sensor)
+                ? SensorTypes.NoSensor
+                : sensor);
         }
 
         // Add the active sensor channel to a list for query
@@ -258,6 +294,7 @@ public class DelsysEMG
     {
         if (!connected)
         {
+            CloseSockets();
             ResetLocalState();
             return;
         }
@@ -271,14 +308,7 @@ public class DelsysEMG
         SendCommand(COMMAND_QUIT);
         connected = false;  //no longer connected
 
-        //Close all streams and connections
-        commandReader.Close();
-        commandWriter.Close();
-        commandStream.Close();
-        commandSocket.Close();
-        emgStream.Close();
-        emgSocket.Close();
-
+        CloseSockets();
         ResetLocalState();
         Debug.Log("Delsys-> Disconnect from server and quit!");
     }
@@ -300,23 +330,28 @@ public class DelsysEMG
             Debug.Log("Delsys-> EMG Not connected.");
             return;
         }
+        if (running)
+        {
+            Debug.Log("Delsys-> EMG acquisition already running.");
+            return;
+        }
 
         
-        //Establish data connections and creat streams
-        emgSocket = new TcpClient("localhost", emgDataPort);
-
-        //emgStream = emgSocket.GetStream();
-        emgStream = emgSocket.GetStream();
-
-        //Create data acquisition threads
-        emgThread = new Thread(ImuEmgThreadRoutine);
-        emgThread.IsBackground = true;
-        //Indicate we are running and start up the acquisition threads
-        running = true;
-
-        //emgTimer = new Timer(new TimerCallback(this.ImuEmgThreadRoutine), null, new TimeSpan(10000), new TimeSpan(10000));
-        emgThread.Start();
-
+        try
+        {
+            CloseDataSocket();
+            emgSocket = new TcpClient("localhost", emgDataPort);
+            emgSocket.ReceiveBufferSize = 1024 * 1024;
+            emgSocket.ReceiveTimeout = dataTimeoutMs;
+            emgSocket.SendTimeout = commandTimeoutMs;
+            emgStream = emgSocket.GetStream();
+            emgStream.ReadTimeout = dataTimeoutMs;
+        }
+        catch (Exception ex) when (ex is IOException || ex is SocketException || ex is ObjectDisposedException)
+        {
+            MarkDisconnected("Could not open EMG data stream", ex);
+            return;
+        }
 
         //Send start command to server to stream data
         string response = SendCommand(COMMAND_START);
@@ -324,11 +359,15 @@ public class DelsysEMG
         //check response
         if (response.StartsWith("OK"))
         {
+            emgThread = new Thread(ImuEmgThreadRoutine) { IsBackground = true };
+            running = true;
+            emgThread.Start();
             Debug.Log("Delsys-> Server OK to start acquisition!");
         }
         else
         {
             running = false;    //stop threads
+            CloseDataSocket();
             Debug.Log("Delsys-> Server ERROR to start acquisition!");
         }
         
@@ -339,16 +378,15 @@ public class DelsysEMG
     {
         if (!connected)
             return;
-        if (running)
-        {
-            running = false;    //no longer running
-                                //Wait for threads to terminate
-            emgThread.Join();
-        }
-        
+        running = false;
 
         //Send stop command to server
         string response = SendCommand(COMMAND_STOP);
+        CloseDataSocket();
+        if (emgThread != null && emgThread.IsAlive)
+            emgThread.Join(commandTimeoutMs);
+        emgThread = null;
+
         if (!response.StartsWith("OK"))
             Debug.Log("Delsys->: Server failed to stop. Further actions may fail.");
         else
@@ -484,13 +522,7 @@ public class DelsysEMG
             ? $"Delsys-> Connection closed ({context})."
             : $"Delsys-> Connection closed ({context}): {ex.Message}");
 
-        try { commandReader?.Close(); } catch { }
-        try { commandWriter?.Close(); } catch { }
-        try { commandStream?.Close(); } catch { }
-        try { commandSocket?.Close(); } catch { }
-        try { emgStream?.Close(); } catch { }
-        try { emgSocket?.Close(); } catch { }
-
+        CloseSockets();
         ResetLocalState();
     }
 
@@ -514,6 +546,8 @@ public class DelsysEMG
 
                 //Read the response line and display
                 response = commandReader.ReadLine();
+                if (response == null)
+                    throw new IOException("Command connection closed by server.");
                 commandReader.ReadLine();   //get extra line terminator
             }
             catch (IOException ioException)
@@ -537,7 +571,7 @@ public class DelsysEMG
     // Thread for emg acquisition
     private void ImuEmgThreadRoutine(object state)
     {
-       emgStream.ReadTimeout = 100000;    //set timeout, unit: ms
+       emgStream.ReadTimeout = dataTimeoutMs;
 
         BinaryReader reader = new BinaryReader(emgStream);
         float[] frame = new float[16];
@@ -593,17 +627,20 @@ public class DelsysEMG
             }
             catch (IOException e)
             {
-                MarkDisconnected("IOException during EMG stream read", e);
+                if (running)
+                    MarkDisconnected("IOException during EMG stream read", e);
                 break;
             }
             catch (SocketException e)
             {
-                MarkDisconnected("SocketException during EMG stream read", e);
+                if (running)
+                    MarkDisconnected("SocketException during EMG stream read", e);
                 break;
             }
             catch (ObjectDisposedException e)
             {
-                MarkDisconnected("ObjectDisposedException during EMG stream read", e);
+                if (running)
+                    MarkDisconnected("ObjectDisposedException during EMG stream read", e);
                 break;
             }
         }

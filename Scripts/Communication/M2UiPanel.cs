@@ -500,9 +500,14 @@ namespace CORC.Demo
             if (bridge != null)
             {
                 bridge.SetCalibForce(value);
-                if (calibForceInput != null)
-                    calibForceInput.text = bridge.CalibForce.ToString(); // Sync actual applied value back to UI box just in case user typed "abc"
+                RefreshCalibForceInput();
             }
+        }
+
+        public void RefreshCalibForceInput()
+        {
+            if (calibForceInput != null && bridge != null)
+                calibForceInput.text = bridge.CalibForce.ToString("0.00");
         }
 
         private void OnStandbyKEdit(string value)

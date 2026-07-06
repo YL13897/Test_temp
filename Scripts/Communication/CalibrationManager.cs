@@ -278,7 +278,10 @@ namespace CORC.Demo
             if (bridge != null)
             {
                 if (response.calibForce > 0f)
+                {
                     bridge.CalibForce = response.calibForce;
+                    FindFirstObjectByType<M2UiPanel>()?.RefreshCalibForceInput();
+                }
                 if (response.standbyK > 0f)
                     bridge.SetStandbyK(response.standbyK.ToString());
                 bridge.SetCalibrationEmg(response.emgRest, response.emgBracing, response.emgRef);
