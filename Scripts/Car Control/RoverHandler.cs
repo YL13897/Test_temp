@@ -23,6 +23,8 @@ public class RoverHandler : MonoBehaviour
     public float maxX = 4.5f;
     public bool enableBoundaryClamp = true;
     [SerializeField] float boundaryTolerance = 0.005f;
+    [SerializeField] ParticleSystem explosionL;
+    [SerializeField] ParticleSystem explosionR;
     public bool BoundaryContact { get; private set; }
 
     // readonly int logEveryNFrames = 50;
@@ -87,6 +89,16 @@ public class RoverHandler : MonoBehaviour
     public void SetPreserveLateralVelocity(bool preserve) { preserveLateralVelocity = preserve; }
 
     public bool IsDriving() { return isDriving; }
+
+    public void PlayBoundaryExplosion()
+    {
+        float tolerance = Mathf.Max(0f, boundaryTolerance);
+
+        if (rb.position.x <= minX + tolerance)
+            explosionL?.Play();
+        else if (rb.position.x >= maxX - tolerance)
+            explosionR?.Play();
+    }
 
     public void SetPaused(bool paused)
     {

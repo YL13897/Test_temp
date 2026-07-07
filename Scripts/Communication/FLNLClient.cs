@@ -27,7 +27,9 @@ namespace CORC
         private const int MESSAGE_SIZE = 255; //Messages (frame) size in bytes
         private const int EXPECTED_DOUBLE_SIZE = 8; //Size expected for the doubles: will be checked at startup and should be same on server and client size
         private const int CMD_SIZE = 4; //Commands length in chars
-        private int MaxNbValues = (int)Math.Floor((MESSAGE_SIZE - 3 - CMD_SIZE) / (float)sizeof(double));
+        private int MaxNbValues = (int)Math.Floor((MESSAGE_SIZE - 3 - CMD_SIZE) / (float)sizeof(double)); // Maximum number of double values that can be sent in a message (frame)
+        // (A packet can contain at most 31 doubles. The reserved bytes are header/type, count, four command characters, and checksum.)
+
         private const char InitValueCode = 'V';
         private const char InitCmdCode = 'C';
         private readonly ConcurrentQueue<FLNLCmd> _cmdQueue = new();

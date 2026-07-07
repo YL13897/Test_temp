@@ -129,6 +129,7 @@ namespace CORC.Demo
         // Delsys EMG background data collection
         [Header("EMG Settings")]
         [SerializeField] private bool delsysEnable;
+        [SerializeField] private bool emgReconnectFlag = false;
         [SerializeField] private bool emgRecordFlag = true;
         [SerializeField] private string emgPathOverride = "";
         [SerializeField] private bool scoreLogRecordFlag = true;
@@ -1078,7 +1079,7 @@ namespace CORC.Demo
             // if (rover != null && roverRigidbody == null)
             //     roverRigidbody = rover.GetComponent<Rigidbody>();
 
-            if (delsysEnable && !blockActive && !IsEmgReady() && Time.unscaledTime >= nextEmgReconnectTime)
+            if (delsysEnable && emgReconnectFlag && !blockActive && !IsEmgReady() && Time.unscaledTime >= nextEmgReconnectTime)
                 TryConnectEmg();
 
             bool connectedNow = m2 != null && m2.IsInitialised() && m2.Client != null && m2.Client.IsConnected();
@@ -1132,7 +1133,7 @@ namespace CORC.Demo
             }
 
 
-            rover.SetPreserveLateralVelocity(unityMode == UnityDriveMode.Mode2_M2);
+            rover.SetPreserveLateralVelocity(unityMode == UnityDriveMode.Mode2_M2 && ctrlModeCode == 2);
             rover.SetPaused(isPaused);
             rover.SetDriving(isDriving && !isPaused);
 

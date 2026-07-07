@@ -74,8 +74,12 @@ public class ScoreSystem : MonoBehaviour
             lastSectionNumber = sectionNumber;
         }
 
-        if (rover != null && rover.BoundaryContact)
-            ScoreManager.Instance.TryApplyBoundaryPenalty(penaltyValue);
+        if (rover != null
+            && rover.BoundaryContact
+            && ScoreManager.Instance.TryApplyBoundaryPenalty(penaltyValue))
+        {
+            rover.PlayBoundaryExplosion();
+        }
 
         float e = xRover - xLeader;
         bool m2Mode = bridge != null && bridge.unityMode == CORC.Demo.M2RoverBridge.UnityDriveMode.Mode2_M2;

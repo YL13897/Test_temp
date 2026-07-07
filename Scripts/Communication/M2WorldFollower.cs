@@ -23,7 +23,7 @@ public class M2WorldFollower : MonoBehaviour
     public float unityCenterX = 0f;
 
     [Header("Motion")]
-    [Range(0f, 1f)] public float smooth = 0.25f; // smoothness factor for position updates
+    [Range(0f, 1f)] public float smooth = 0.01f; // smoothness factor for position updates
     [Tooltip("How quickly sync bias returns to zero after disturbance.")]
     public float biasRecoverRate = 4f;
     [Tooltip("Clamp on disturbance-induced Unity X bias.")]
