@@ -2723,13 +2723,13 @@ GameObject:
   - component: {fileID: 507810785}
   - component: {fileID: 507810784}
   - component: {fileID: 507810792}
+  - component: {fileID: 507810793}
   - component: {fileID: 507810791}
   - component: {fileID: 507810787}
   - component: {fileID: 507810786}
   - component: {fileID: 507810789}
   - component: {fileID: 507810788}
   - component: {fileID: 507810790}
-  - component: {fileID: 507810793}
   - component: {fileID: 507810794}
   - component: {fileID: 507810795}
   - component: {fileID: 507810796}
@@ -2851,9 +2851,6 @@ MonoBehaviour:
   markerRb: {fileID: 481331123}
   unityXMin: -4.5
   unityXMax: 4.5
-  m2XMin: 0.16
-  m2XMax: 0.48
-  m2CenterX: 0.32
   unityCenterX: 0
   smooth: 0.25
   biasRecoverRate: 4
@@ -2940,7 +2937,6 @@ MonoBehaviour:
   EmgBracing: []
   EmgRef: []
   m2Axis: 0
-  m2CenterX: 0.32
   unityMode: 1
   hriModeCode: 2
   ctrlModeCode: 1
@@ -2962,6 +2958,7 @@ MonoBehaviour:
   worldXCenter: 0
   unityCenterX: 0
   autoSnapOnM2Reconnect: 1
+  recordingEnabled: 1
   delsysEnable: 1
   emgReconnectFlag: 0
   emgRecordFlag: 1

@@ -509,7 +509,7 @@ namespace CORC.Demo
 
         private void WriteDebugCsv()
         {
-            if (!logDebugCsv || bridge == null)
+            if (!logDebugCsv || bridge == null || !bridge.RecordingEnabled)
             {
                 CloseDebugCsv();
                 return;

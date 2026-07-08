@@ -23,6 +23,12 @@ using TMPro;
 
 namespace CORC.Demo 
 {
+    public enum M2AxisMode
+    {
+        X = 0,
+        Y = 1
+    }
+
     public class M2RoverBridge : MonoBehaviour
     {
         [Header("Refs")]
@@ -41,11 +47,30 @@ namespace CORC.Demo
         public float[] EmgBracing = Array.Empty<float>();
         public float[] EmgRef = Array.Empty<float>();
 
-        public int m2Axis = 0; // 0 = M2 X axis, 1 = M2 Y axis.
-        
-        // The selected M2 axis position that corresponds to the center reference (point A).
-        public float m2CenterX = 0.32f; // For X axis
-        // public float m2CenterX = 0.25f;  // For Y axis
+        [Header("M2 Axis Mode")]
+        [Tooltip("Select before Play for the M2 session.")]
+        public M2AxisMode m2Axis = M2AxisMode.X;
+        [Tooltip("If enabled, M2 TRIAL uses admittance control on the moving axis.")]
+        public bool useM2Admittance = true;
+        private const float M2XMin = 0.0f;
+        private const float M2XMax = 0.64f;
+        // Boundary mapping reference: X 0.20..0.44, Y 0.12..0.38.
+        // private const float M2XBoundaryMin = 0.20f;
+        // private const float M2XBoundaryMax = 0.44f;
+        private const float M2XCenter = 0.32f;
+        private const float M2YMin = 0.0f;
+        private const float M2YMax = 0.50f;
+        // private const float M2YBoundaryMin = 0.12f;
+        // private const float M2YBoundaryMax = 0.38f;
+        private const float M2YCenter = 0.25f;
+
+        public int M2Axis => (int)m2Axis;
+        public float M2AxisMin => M2Axis == 0 ? M2XMin : M2YMin;
+        public float M2AxisMax => M2Axis == 0 ? M2XMax : M2YMax;
+        public float M2BoundaryMin => M2Axis == 0 ? 0.20f : 0.12f;
+        public float M2BoundaryMax => M2Axis == 0 ? 0.44f : 0.38f;
+        public float M2AxisCenter => M2Axis == 0 ? M2XCenter : M2YCenter;
+
         public enum UnityDriveMode
         {
             Mode1_Keyboard = 1,
@@ -113,6 +138,8 @@ namespace CORC.Demo
         // private float nextFeedbackSendTime = 0.0f;
         private float nextVelDebugTime = 0.0f;
         private bool lastM2Connected = false; // Track M2 connection status to detect reconnects for auto-snapping
+        private int sentM2Axis = -1;
+        private bool sentM2Admittance = false;
         private bool hasSentDisturbanceState = false; // To track whether we've sent the disturbance state to M2, to avoid redundant commands
         private bool lastDisturbanceState = false; // To track the last disturbance state sent to M2, for change detection
         private Vector3 roverInitialPosition; // To store the initial pose of the rover for resetting, captured in Awake()
@@ -131,6 +158,7 @@ namespace CORC.Demo
         
         // Delsys EMG background data collection
         [Header("EMG Settings")]
+        [SerializeField] private bool recordingEnabled = true;
         [SerializeField] private bool delsysEnable;
         [SerializeField] private bool emgReconnectFlag = false;
         [SerializeField] private bool emgRecordFlag = true;
@@ -365,11 +393,14 @@ namespace CORC.Demo
             return !float.IsNaN(fx) && !float.IsInfinity(fx);
         }
 
-        public bool EmgRecordFlag => emgRecordFlag;
+        public bool RecordingEnabled => recordingEnabled;
+        public bool EmgRecordFlag => recordingEnabled && emgRecordFlag;
         public bool EmgIsRecording => emgIsRecording;
-        public bool ScoreLogRecordFlag => scoreLogRecordFlag;
+        public bool ScoreLogRecordFlag => recordingEnabled && scoreLogRecordFlag;
         public bool ScoreLogIsRecording => scoreLogIsRecording;
-        public bool CanStartAnyRecording => (emgRecordFlag && IsEmgReady() && !emgIsRecording) || (scoreLogRecordFlag && IsScoreLogReady() && !scoreLogIsRecording);
+        public bool CanStartAnyRecording => recordingEnabled &&
+            ((emgRecordFlag && IsEmgReady() && !emgIsRecording) ||
+             (scoreLogRecordFlag && IsScoreLogReady() && !scoreLogIsRecording));
         public bool AnyRecordingActive => emgIsRecording || scoreLogIsRecording;
         public bool IsTrialLoggingActive => unityMode == UnityDriveMode.Mode2_M2 && blockActive &&
             ExperimentBlockControl.Instance != null && ExperimentBlockControl.Instance.HasActiveSection;
@@ -429,7 +460,7 @@ namespace CORC.Demo
 
         private bool TryStartEmgRecording()
         {
-            if (!emgRecordFlag || !IsEmgReady() || emgIsRecording) return false;
+            if (!recordingEnabled || !emgRecordFlag || !IsEmgReady() || emgIsRecording) return false;
 
             string emgPath = ConfigEMGFilePath();
             sec = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentSectionNumber : 0;
@@ -452,7 +483,7 @@ namespace CORC.Demo
 
         private bool TryStartScoreLogRecording()
         {
-            if (!scoreLogRecordFlag || !IsScoreLogReady() || scoreLogIsRecording) return false;
+            if (!recordingEnabled || !scoreLogRecordFlag || !IsScoreLogReady() || scoreLogIsRecording) return false;
 
             if (scoreLogWriter == null)
             {
@@ -904,12 +935,28 @@ namespace CORC.Demo
         // =======================================================================================
         // --- Sync logic  ---
 
+        private void TrySendAxisModeToM2()
+        {
+            if (blockActive) return;
+            if (m2 == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return;
+
+            int axis = M2Axis;
+            if (sentM2Axis == axis && sentM2Admittance == useM2Admittance) return;
+
+            m2.SendCmd("S_AX", new double[] { axis, useM2Admittance ? 1.0 : 0.0 });
+            sentM2Axis = axis;
+            sentM2Admittance = useM2Admittance;
+            syncRefReady = false;
+            worldFollower?.ResetBias();
+            Debug.Log($"[M2RoverBridge] Sent M2 axis mode: {(axis == 0 ? "X" : "Y")}, admittance={useM2Admittance}");
+        }
+
         // Safely attempt to read the selected M2 handle axis position from the M2 state.
         private bool TryGetM2HandleX(out float handleX)
         {
             handleX = 0f;
             if (m2 == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return false;
-            int axis = m2Axis == 0 ? 0 : 1; // Map m2Axis to index: 0 for X, 1 for Y
+            int axis = M2Axis;
             if (m2.State == null || m2.State["X"] == null || m2.State["X"].Length <= axis) return false;
             handleX = (float)m2.State["X"][axis];
             if (float.IsNaN(handleX) || float.IsInfinity(handleX)) return false;
@@ -1015,7 +1062,7 @@ namespace CORC.Demo
         private float ComputeVelHandleXRel(float handleX)
         {
             // Use block-start center when ready to avoid fixed-center mismatch.
-            float velCenterX = syncRefReady ? handleXRef : m2CenterX;
+            float velCenterX = syncRefReady ? handleXRef : M2AxisCenter;
             float handleXRel = handleX - velCenterX;
             if (Mathf.Abs(handleXRel) < velHandleXDeadZone) handleXRel = 0f;
             return handleXRel;
@@ -1086,7 +1133,17 @@ namespace CORC.Demo
             if (delsysEnable && emgReconnectFlag && !blockActive && !IsEmgReady() && Time.unscaledTime >= nextEmgReconnectTime)
                 TryConnectEmg();
 
+            if (!recordingEnabled)
+            {
+                if (AnyRecordingActive)
+                    StopAuxRecordingManual();
+                recStarted = false;
+            }
+
             bool connectedNow = m2 != null && m2.IsInitialised() && m2.Client != null && m2.Client.IsConnected();
+
+            if (connectedNow)
+                TrySendAxisModeToM2();
 
             // Detect M2 reconnect to trigger auto-sync if enabled, to prevent large position mismatches that can cause jump forces.
             if (unityMode == UnityDriveMode.Mode2_M2 && connectedNow && !lastM2Connected && autoSnapOnM2Reconnect)
@@ -1097,6 +1154,7 @@ namespace CORC.Demo
             if (!connectedNow)
             {
                 hasSentDisturbanceState = false;
+                sentM2Axis = -1;
             }
             lastM2Connected = connectedNow;
 
@@ -1108,8 +1166,11 @@ namespace CORC.Demo
             delsysEMG.SetSec(sec);
             if (unityMode == UnityDriveMode.Mode2_M2 && blockActive && !recStarted && hasSection)
             {
-                StartAuxRecordingManual();
-                recStarted = true;
+                if (recordingEnabled)
+                {
+                    StartAuxRecordingManual();
+                    recStarted = true;
+                }
             }
 
             if (enableHotkeys)

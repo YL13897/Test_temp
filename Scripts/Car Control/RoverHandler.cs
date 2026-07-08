@@ -92,12 +92,24 @@ public class RoverHandler : MonoBehaviour
 
     public void PlayBoundaryExplosion()
     {
-        float tolerance = Mathf.Max(0f, boundaryTolerance);
-
-        if (rb.position.x <= minX + tolerance)
+        float centerX = 0.5f * (minX + maxX);
+        if (rb.position.x < centerX)
             explosionL?.Play();
-        else if (rb.position.x >= maxX - tolerance)
+        else
             explosionR?.Play();
+    }
+
+    public void UpdateBoundaryContact(float minBoundary, float maxBoundary)
+    {
+        if (rb == null)
+        {
+            BoundaryContact = false;
+            return;
+        }
+
+        float tolerance = Mathf.Max(0f, boundaryTolerance);
+        float x = rb.position.x;
+        BoundaryContact = x <= minBoundary + tolerance || x >= maxBoundary - tolerance;
     }
 
     public void SetPaused(bool paused)
@@ -131,13 +143,11 @@ public class RoverHandler : MonoBehaviour
 
     void ClampBoundary()
     {
-        BoundaryContact = false;
-        if (!enableBoundaryClamp) return;
-
         Vector3 pos = rb.position;
         Vector3 vel = rb.linearVelocity;
-        float tolerance = Mathf.Max(0f, boundaryTolerance);
-        BoundaryContact = pos.x <= minX + tolerance || pos.x >= maxX - tolerance;
+        UpdateBoundaryContact(minX, maxX);
+        if (!enableBoundaryClamp) return;
+
         bool clamped = false;
 
         if (pos.x <= minX)

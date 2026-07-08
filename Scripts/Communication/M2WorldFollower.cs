@@ -1,4 +1,4 @@
-// Minimal 3D follower with explicit X mapping for M2 -> Unity rover alignment.
+// Minimal 3D follower with selected M2 axis mapping for M2 -> Unity rover alignment.
 using UnityEngine;
 using CORC.Demo;
 
@@ -11,23 +11,9 @@ public class M2WorldFollower : MonoBehaviour
     public Rigidbody markerRb;
     private RoverHandler rover;
 
-    [Header("X Mapping (exact)")]
-    [Tooltip("Unity X range.")]
-    public float unityXMin = -10f;
-    public float unityXMax = 10f;
-    
-    [Tooltip("Mapped M2 X range in meters.")]
-    public float m2XMin = 0.2f;
-    public float m2XMax = 0.44f;
-    [Tooltip("Reference center: M2 A point and Unity center line.")]
-    public float m2CenterX = 0.32f;
-
-    // [Tooltip("Mapped selected M2 axis range in meters.")]
-    // public float m2XMin = 0.0f;
-    // public float m2XMax = 0.5f;
-    // [Tooltip("Reference center: M2 A point on selected axis and Unity center line.")]
-    // public float m2CenterX = 0.25f;
-
+    [Header("Unity Mapping")]
+    private const float UnityXMin = -4.5f;
+    private const float UnityXMax = 4.5f;
     public float unityCenterX = 0f;
 
     [Header("Motion")]
@@ -49,6 +35,11 @@ public class M2WorldFollower : MonoBehaviour
         if (bridge == null) bridge = FindFirstObjectByType<M2RoverBridge>();
         rover = marker != null ? marker.GetComponent<RoverHandler>() : null;
         if (rover == null && bridge != null) rover = bridge.rover;
+        if (rover != null)
+        {
+            rover.minX = UnityXMin;
+            rover.maxX = UnityXMax;
+        }
     }
 
     void FixedUpdate()
@@ -57,25 +48,28 @@ public class M2WorldFollower : MonoBehaviour
 
         if (IsKeyboardMode())
         {
+            if (rover != null) rover.enableBoundaryClamp = true;
             ApplyKeyboardBias();
             return;
         }
 
-        int axis = bridge != null ? Mathf.Clamp(bridge.m2Axis, 0, 1) : 0;
+        int axis = bridge != null ? bridge.M2Axis : 0;
         if (m2 == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return;
         if (m2.State == null || m2.State["X"] == null || m2.State["X"].Length <= axis) return;
 
-        float m2X = (float)m2.State["X"][axis];
+        float m2AxisPos = (float)m2.State["X"][axis];
 
         // VEL mode uses velocity mapping and should not position-sync rover.
         if (IsM2VelMode())
         {
+            if (rover != null) rover.enableBoundaryClamp = true;
             syncXBias = 0f;
             hasBiasBase = false;
             return;
         }
 
-        float nominalX = MapM2XToUnityX(m2X);
+        if (rover != null) rover.enableBoundaryClamp = false;
+        float nominalX = MapM2ToUnityX(m2AxisPos);
 
         // POS+HRI mode maps stiffness to disturbance-induced bias.
         if (IsM2HriPosMode())
@@ -118,15 +112,16 @@ public class M2WorldFollower : MonoBehaviour
     }
 
     // Center-preserving linear map. By default this does NOT clamp input range.
-    private float MapM2XToUnityX(float m2X)
+    private float MapM2ToUnityX(float m2AxisPos)
     {
-        float denom = Mathf.Max(1e-6f, m2XMax - m2XMin);
+        float m2Min = bridge != null ? bridge.M2BoundaryMin : 0.20f;
+        float m2Max = bridge != null ? bridge.M2BoundaryMax : 0.44f;
+        float m2Center = bridge != null ? bridge.M2AxisCenter : 0.32f;
+        float denom = Mathf.Max(1e-6f, m2Max - m2Min);
 
-        float m2Input = m2X;
-
-        // Pure linear scaling around center: m2CenterX -> unityCenterX.
-        float slope = (unityXMax - unityXMin) / denom;
-        return unityCenterX + (m2Input - m2CenterX) * slope;
+        // Pure linear scaling around center: selected M2 point A -> Unity centerline.
+        float slope = (UnityXMax - UnityXMin) / denom;
+        return unityCenterX + (m2AxisPos - m2Center) * slope;
     }
 
     private bool IsM2HriPosMode()
@@ -199,17 +194,13 @@ public class M2WorldFollower : MonoBehaviour
     // ApplySmoothPosition: Smoothly move the marker towards the target position. The 'smooth' parameter controls the responsiveness.
     private void ApplySmoothPosition(Vector3 target)
     {
-        if (rover != null && rover.enableBoundaryClamp)
-            target.x = Mathf.Clamp(target.x, rover.minX, rover.maxX);
-
         float alpha = smooth > 0f ? 1f - Mathf.Pow(1f - smooth, Time.fixedDeltaTime * 60f) : 1f; // frame-rate independent smoothing
         lastPos = Vector3.Lerp(lastPos == Vector3.zero ? marker.position : lastPos, target, alpha); // use lastPos to avoid snapping on first frame
-        if (rover != null && rover.enableBoundaryClamp)
-            lastPos.x = Mathf.Clamp(lastPos.x, rover.minX, rover.maxX);
 
         Vector3 next = markerRb.position;
         next.x = lastPos.x;
         markerRb.position = next;
+        rover?.UpdateBoundaryContact(UnityXMin, UnityXMax);
     }
 
 }
