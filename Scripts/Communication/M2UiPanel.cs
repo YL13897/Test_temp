@@ -22,6 +22,7 @@ namespace CORC.Demo
         public TMP_Text disturbanceTxt;
         public TMP_Text calibrationTxt;
         public Slider kSlider;
+        public Slider kSlider2;
 
         [Header("Buttons")]
         public Button beginSessionBtn;
@@ -165,12 +166,21 @@ namespace CORC.Demo
 
         private void UpdateKSlider()
         {
-            if (kSlider == null || bridge == null)
+            if (bridge == null)
                 return;
 
-            kSlider.minValue = bridge.StiffnessMin;
-            kSlider.maxValue = bridge.StiffnessMax;
-            kSlider.value = Mathf.Clamp(bridge.StiffnessCmd, kSlider.minValue, kSlider.maxValue);
+            UpdateKSliderValue(kSlider);
+            UpdateKSliderValue(kSlider2);
+        }
+
+        private void UpdateKSliderValue(Slider slider)
+        {
+            if (slider == null)
+                return;
+
+            slider.minValue = bridge.StiffnessMin;
+            slider.maxValue = bridge.StiffnessMax;
+            slider.value = Mathf.Clamp(bridge.StiffnessCmd, slider.minValue, slider.maxValue);
         }
 
         // Try to apply pending HRI/CTRL mode settings if we are waiting for M2 to be ready at A after BGIN

@@ -23,6 +23,7 @@ public class ExperimentBlockControl : MonoBehaviour
     [SerializeField] bool addFixedBlocks = true;
     [SerializeField] bool useFixSequence = false;
     [SerializeField] bool useTestSequence = false;
+    [SerializeField, Range(1, 3)] int sequenceSet = 1;
     [SerializeField] float[] blockProbabilities =
     {
         1f / 32f,
@@ -35,63 +36,6 @@ public class ExperimentBlockControl : MonoBehaviour
         15f / 16f,
         31f / 32f
     };
-
-
-    // ============================ 40 Trials setting ==================================
-
-    // One 40-trial segment per rest block.
-    // Probability indices and case codes are randomized globally across all 360 trials.
-    [SerializeField, HideInInspector] string randomSequence =
-        "6803210558315456645447671730105166454406" +
-        "1651180305627481384230737863518653205784" +
-        "2012754452351875035067866028707885011082" +
-        "0271873764622572508016661834403578758145" +
-        "2064138864285301024662647742846041023038" +
-        "4602725835548327706127047101142323458780" +
-        "8676312022113614105183456617767512342251" +
-        "3560423533671534738348683837071877801531" +
-        "2665235524845824706046421238470208372731";
-    // Aligned case codes: 0=Left/LF, 1=Right/RF, 2=Left/RF, 3=Right/LF.
-    [SerializeField, HideInInspector] string caseSequence =
-        "0122010003313223021012102033233333213111" +
-        "1123013113333032213231123320330020311100" +
-        "2110011301301211332310310202123203023012" +
-        "1130123223022303331213120202301001311120" +
-        "3022321320131131231122003033020202001221" +
-        "1301221312212131211202231313011300332021" +
-        "2230323310020333222220211203121231220230" +
-        "2330032010300213310220000322033202031001" +
-        "1312000011301030232110010033110220322110";
-
-
-
-// ============================ 20 Trials setting ==================================
-
-    // One 20-trial segment per rest block.
-    // Probability indices and case codes are randomized globally across all 180 trials.
-    [SerializeField, HideInInspector] string testRandomSequence =
-        "72610880445177532631" +
-        "14483145047302600638" +
-        "45075250045826277201" +
-        "02481255811678237102" +
-        "87214183658237846786" +
-        "14711168831826065160" +
-        "73565540766225737433" +
-        "37326236651832756838" +
-        "74054802344010304554";
-    // Aligned short case codes: 0=Left/LF, 1=Right/RF, 2=Left/RF, 3=Right/LF.
-    [SerializeField, HideInInspector] string testCaseSequence =
-        "10201232222220100020" +
-        "10110210130313002123" +
-        "31011203313103103111" +
-        "00202301033132211233" +
-        "12130021220122331231" +
-        "03321112331210200330" +
-        "03201300133033011021" +
-        "03232213220002222031" +
-        "30231112012333323032";
-
-// ============================================================================
     
     
     [Header("Episode Mix")]
@@ -104,6 +48,7 @@ public class ExperimentBlockControl : MonoBehaviour
     [SerializeField] LeaderHandler leader;
     [SerializeField] TMP_Text sectionIndexText;
     [SerializeField] TMP_Text countdownText;
+    [SerializeField] TMP_Text blockMessageText;
 
     [Header("UI Timing")]
     [SerializeField] float countdownSeconds = 10f;
@@ -191,8 +136,9 @@ public class ExperimentBlockControl : MonoBehaviour
     int ActiveRightRfCount => useTestSequence ? 5 : rightRfCount;
     int ActiveLeftRfCount => useTestSequence ? 5 : leftRfCount;
     int ActiveRightLfCount => useTestSequence ? 5 : rightLfCount;
-    string ActiveRandomSequence => useTestSequence ? testRandomSequence : randomSequence;
-    string ActiveCaseSequence => useTestSequence ? testCaseSequence : caseSequence;
+    int SequenceIndex => sequenceSet >= 1 && sequenceSet <= ExperimentSequences.Random40.Length ? sequenceSet - 1 : 0;
+    string ActiveRandomSequence => useTestSequence ? ExperimentSequences.Random20[SequenceIndex] : ExperimentSequences.Random40[SequenceIndex];
+    string ActiveCaseSequence => useTestSequence ? ExperimentSequences.Case20[SequenceIndex] : ExperimentSequences.Case40[SequenceIndex];
 
     void Awake()
     {
@@ -456,23 +402,27 @@ public class ExperimentBlockControl : MonoBehaviour
             }
         }
 
-        if (countdownText != null)
+        TMP_Text messageText = blockMessageText != null ? blockMessageText : countdownText;
+        if (countdownText != null && countdownText != messageText)
+            countdownText.text = string.Empty;
+
+        if (messageText != null)
         {
             if (IsRoundComplete)
             {
-                countdownText.text = "Round complete";
+                messageText.text = "Round complete";
             }
             else if (CountdownActive)
             {
-                countdownText.text = $"Relax! Reset to centre!\n Next block in {Mathf.CeilToInt(CountdownRemain)} s";
+                messageText.text = $"Relax! Reset to centre!\n Next block in {Mathf.CeilToInt(CountdownRemain)} s";
             }
             else if (HasPreparedBlock && !blockRunning && autoPauseAtTime < 0f)
             {
-                countdownText.text = "Ready!";
+                messageText.text = "Ready!";
             }
             else
             {
-                countdownText.text = string.Empty;
+                messageText.text = string.Empty;
             }
         }
     }

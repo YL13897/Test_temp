@@ -1,0 +1,64 @@
+public static class ExperimentSequences
+{
+    // One 40-trial segment per rest block, 360 trials total.
+    const string Random40Set1 =
+        "6803210558315456645447671730105166454406" +
+        "1651180305627481384230737863518653205784" +
+        "2012754452351875035067866028707885011082" +
+        "0271873764622572508016661834403578758145" +
+        "2064138864285301024662647742846041023038" +
+        "4602725835548327706127047101142323458780" +
+        "8676312022113614105183456617767512342251" +
+        "3560423533671534738348683837071877801531" +
+        "2665235524845824706046421238470208372731";
+
+    // Aligned case codes: 0=Left/LF, 1=Right/RF, 2=Left/RF, 3=Right/LF.
+    const string Case40Set1 =
+        "0122010003313223021012102033233333213111" +
+        "1123013113333032213231123320330020311100" +
+        "2110011301301211332310310202123203023012" +
+        "1130123223022303331213120202301001311120" +
+        "3022321320131131231122003033020202001221" +
+        "1301221312212131211202231313011300332021" +
+        "2230323310020333222220211203121231220230" +
+        "2330032010300213310220000322033202031001" +
+        "1312000011301030232110010033110220322110";
+
+    // One 20-trial segment per rest block, 180 trials total.
+    const string Random20Set1 =
+        "72610880445177532631" +
+        "14483145047302600638" +
+        "45075250045826277201" +
+        "02481255811678237102" +
+        "87214183658237846786" +
+        "14711168831826065160" +
+        "73565540766225737433" +
+        "37326236651832756838" +
+        "74054802344010304554";
+
+    const string Case20Set1 =
+        "10201232222220100020" +
+        "10110210130313002123" +
+        "31011203313103103111" +
+        "00202301033132211233" +
+        "12130021220122331231" +
+        "03321112331210200330" +
+        "03201300133033011021" +
+        "03232213220002222031" +
+        "30231112012333323032";
+
+    const string Random40Set2 = Random40Set1;
+    const string Case40Set2 = Case40Set1;
+    const string Random20Set2 = Random20Set1;
+    const string Case20Set2 = Case20Set1;
+
+    const string Random40Set3 = Random40Set1;
+    const string Case40Set3 = Case40Set1;
+    const string Random20Set3 = Random20Set1;
+    const string Case20Set3 = Case20Set1;
+
+    public static readonly string[] Random40 = { Random40Set1, Random40Set2, Random40Set3 };
+    public static readonly string[] Case40 = { Case40Set1, Case40Set2, Case40Set3 };
+    public static readonly string[] Random20 = { Random20Set1, Random20Set2, Random20Set3 };
+    public static readonly string[] Case20 = { Case20Set1, Case20Set2, Case20Set3 };
+}

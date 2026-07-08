@@ -22,7 +22,7 @@ public class RoverHandler : MonoBehaviour
     public float minX = -4.5f;
     public float maxX = 4.5f;
     public bool enableBoundaryClamp = true;
-    [SerializeField] float boundaryTolerance = 0.005f;
+    [SerializeField] float boundaryTolerance = 0.001f;
     [SerializeField] ParticleSystem explosionL;
     [SerializeField] ParticleSystem explosionR;
     public bool BoundaryContact { get; private set; }

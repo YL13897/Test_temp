@@ -4,7 +4,7 @@ using UnityEngine;
 // Temporary Editor-only validator for ExperimentBlockControl probability sequences.
 // Run in Edit Mode: open the experiment scene, then select
 // Tools > Experiment > Check Probability Sequence and read the Unity Console.
-// It checks total trials and the probability/case counts for normal and test sequences.
+// It checks total trials and the probability/case counts for all normal and test sequence sets.
 
 public static class ProbabilitySequenceChecker
 {
@@ -29,19 +29,18 @@ public static class ProbabilitySequenceChecker
             data.FindProperty("rightLfCount").intValue
         };
 
-        CheckSet(
-            "normal",
-            data.FindProperty("randomSequence").stringValue,
-            data.FindProperty("caseSequence").stringValue,
-            probabilities,
-            expectedCases);
+        int setCount = Mathf.Min(
+            ExperimentSequences.Random40.Length,
+            ExperimentSequences.Case40.Length,
+            ExperimentSequences.Random20.Length,
+            ExperimentSequences.Case20.Length); // Length = 3; (3 sets for usage)
 
-        CheckSet(
-            "test",
-            data.FindProperty("testRandomSequence").stringValue,
-            data.FindProperty("testCaseSequence").stringValue,
-            probabilities,
-            new[] { 5, 5, 5, 5 });
+        for (int i = 0; i < setCount; i++)
+        {
+            int setNumber = i + 1;
+            CheckSet($"normal set {setNumber}", ExperimentSequences.Random40[i], ExperimentSequences.Case40[i], probabilities, expectedCases);
+            CheckSet($"test set {setNumber}", ExperimentSequences.Random20[i], ExperimentSequences.Case20[i], probabilities, new[] { 5, 5, 5, 5 });
+        }
     }
 
     static void CheckSet(string label, string sequence, string cases, SerializedProperty probabilities, int[] expectedCases)

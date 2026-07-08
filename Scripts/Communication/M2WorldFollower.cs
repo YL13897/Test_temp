@@ -15,15 +15,23 @@ public class M2WorldFollower : MonoBehaviour
     [Tooltip("Unity X range.")]
     public float unityXMin = -10f;
     public float unityXMax = 10f;
+    
     [Tooltip("Mapped M2 X range in meters.")]
     public float m2XMin = 0.2f;
     public float m2XMax = 0.44f;
     [Tooltip("Reference center: M2 A point and Unity center line.")]
     public float m2CenterX = 0.32f;
+
+    // [Tooltip("Mapped selected M2 axis range in meters.")]
+    // public float m2XMin = 0.0f;
+    // public float m2XMax = 0.5f;
+    // [Tooltip("Reference center: M2 A point on selected axis and Unity center line.")]
+    // public float m2CenterX = 0.25f;
+
     public float unityCenterX = 0f;
 
     [Header("Motion")]
-    [Range(0f, 1f)] public float smooth = 0.01f; // smoothness factor for position updates
+    [Range(0f, 1f)] public float smooth = 0.005f; // smoothness factor for position updates
     [Tooltip("How quickly sync bias returns to zero after disturbance.")]
     public float biasRecoverRate = 4f;
     [Tooltip("Clamp on disturbance-induced Unity X bias.")]
@@ -53,10 +61,11 @@ public class M2WorldFollower : MonoBehaviour
             return;
         }
 
+        int axis = bridge != null ? Mathf.Clamp(bridge.m2Axis, 0, 1) : 0;
         if (m2 == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return;
-        if (m2.State == null || m2.State["X"] == null || m2.State["X"].Length < 1) return;
+        if (m2.State == null || m2.State["X"] == null || m2.State["X"].Length <= axis) return;
 
-        float m2X = (float)m2.State["X"][0];
+        float m2X = (float)m2.State["X"][axis];
 
         // VEL mode uses velocity mapping and should not position-sync rover.
         if (IsM2VelMode())

@@ -41,8 +41,11 @@ namespace CORC.Demo
         public float[] EmgBracing = Array.Empty<float>();
         public float[] EmgRef = Array.Empty<float>();
 
-        public float m2CenterX = 0.32f; // The M2 handle X position that corresponds to the center reference (point A).
-
+        public int m2Axis = 0; // 0 = M2 X axis, 1 = M2 Y axis.
+        
+        // The selected M2 axis position that corresponds to the center reference (point A).
+        public float m2CenterX = 0.32f; // For X axis
+        // public float m2CenterX = 0.25f;  // For Y axis
         public enum UnityDriveMode
         {
             Mode1_Keyboard = 1,
@@ -901,13 +904,14 @@ namespace CORC.Demo
         // =======================================================================================
         // --- Sync logic  ---
 
-        // Safely attempt to read the M2 handle X position from the M2 state.
+        // Safely attempt to read the selected M2 handle axis position from the M2 state.
         private bool TryGetM2HandleX(out float handleX)
         {
             handleX = 0f;
             if (m2 == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return false;
-            if (m2.State == null || m2.State["X"] == null || m2.State["X"].Length < 1) return false;
-            handleX = (float)m2.State["X"][0];
+            int axis = m2Axis == 0 ? 0 : 1; // Map m2Axis to index: 0 for X, 1 for Y
+            if (m2.State == null || m2.State["X"] == null || m2.State["X"].Length <= axis) return false;
+            handleX = (float)m2.State["X"][axis];
             if (float.IsNaN(handleX) || float.IsInfinity(handleX)) return false;
             return true;
         }
