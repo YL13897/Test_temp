@@ -156,22 +156,29 @@ namespace CORC.Demo
 
         // ----------------------------------------------------------------------------------------------------------------------
         
+        [Header("Recording")]
+        [SerializeField] private bool recordingEnabled = true;
+        [SerializeField] private bool emgRecordFlag = true;
+        [SerializeField] private bool scoreLogRecordFlag = true;
+        [SerializeField] private bool disturbanceLogRecordFlag = true;
+
         // Delsys EMG background data collection
         [Header("EMG Settings")]
-        [SerializeField] private bool recordingEnabled = true;
         [SerializeField] private bool delsysEnable;
         [SerializeField] private bool emgReconnectFlag = false;
-        [SerializeField] private bool emgRecordFlag = true;
-        [SerializeField] private string emgPathOverride = "";
-        [SerializeField] private bool scoreLogRecordFlag = true;
-        [SerializeField] private string scoreLogPathOverride = "";
         [SerializeField] private EmgRecordFormat emgRecordFormat = EmgRecordFormat.Csv;
         [SerializeField] private EMGFilter.EmgSignalView emgSignalMode = EMGFilter.EmgSignalView.Envelope;
         [SerializeField] private float emgScoreDownsampleHz = 100f;
         [SerializeField] private EMGFilter emgFilter;
+
+        [Header("Recording Paths")]
+        [SerializeField] private string emgPathOverride = "";
+        [SerializeField] private string scoreLogPathOverride = "";
+        [SerializeField] private string disturbanceLogPathOverride = "";
         private DelsysEMG delsysEMG = new DelsysEMG();
         private bool emgIsRecording = false;
         private bool scoreLogIsRecording = false;
+        private bool disturbanceLogIsRecording = false;
 
         [Header("EMG Channel Preview")]
         [SerializeField] private int emgPreviewMaxChannels = 8;
@@ -198,7 +205,9 @@ namespace CORC.Demo
         private const float emgReconnectDelay = 5f;
         private string emgSessionFilePath;
         private string scoreLogSessionFilePath;
+        private string disturbanceLogSessionFilePath;
         private StreamWriter scoreLogWriter;
+        private StreamWriter disturbanceLogWriter;
         private int scoreLogFlushInterval = 200;
         private int scoreLogRowsSinceFlush = 0;
         private double t0 = -1.0;
@@ -302,6 +311,27 @@ namespace CORC.Demo
             return scoreLogSessionFilePath;
         }
 
+        private string ConfigDisturbanceLogFilePath()
+        {
+            if (!string.IsNullOrEmpty(disturbanceLogSessionFilePath))
+                return disturbanceLogSessionFilePath;
+
+            if (!string.IsNullOrWhiteSpace(disturbanceLogPathOverride))
+            {
+                disturbanceLogSessionFilePath = disturbanceLogPathOverride;
+                string overrideDir = Path.GetDirectoryName(disturbanceLogSessionFilePath);
+                if (!string.IsNullOrEmpty(overrideDir))
+                    Directory.CreateDirectory(overrideDir);
+                return disturbanceLogSessionFilePath;
+            }
+
+            string logDir = @"D:\yixianglin\Desktop\PHRI_Data";
+            Directory.CreateDirectory(logDir);
+            string fileName = $"DisturbanceLogs_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+            disturbanceLogSessionFilePath = Path.Combine(logDir, fileName);
+            return disturbanceLogSessionFilePath;
+        }
+
         public bool IsEmgReady()
         {
             return delsysEnable && delsysEMG.IsConnected() && delsysEMG.IsRunning();
@@ -398,10 +428,13 @@ namespace CORC.Demo
         public bool EmgIsRecording => emgIsRecording;
         public bool ScoreLogRecordFlag => recordingEnabled && scoreLogRecordFlag;
         public bool ScoreLogIsRecording => scoreLogIsRecording;
+        public bool DisturbanceLogRecordFlag => recordingEnabled && disturbanceLogRecordFlag;
+        public bool DisturbanceLogIsRecording => disturbanceLogIsRecording;
         public bool CanStartAnyRecording => recordingEnabled &&
             ((emgRecordFlag && IsEmgReady() && !emgIsRecording) ||
-             (scoreLogRecordFlag && IsScoreLogReady() && !scoreLogIsRecording));
-        public bool AnyRecordingActive => emgIsRecording || scoreLogIsRecording;
+             (scoreLogRecordFlag && IsScoreLogReady() && !scoreLogIsRecording) ||
+             (disturbanceLogRecordFlag && !disturbanceLogIsRecording));
+        public bool AnyRecordingActive => emgIsRecording || scoreLogIsRecording || disturbanceLogIsRecording;
         public bool IsTrialLoggingActive => unityMode == UnityDriveMode.Mode2_M2 && blockActive &&
             ExperimentBlockControl.Instance != null && ExperimentBlockControl.Instance.HasActiveSection;
         public EMGFilter.EmgSignalView EmgSignalMode => emgSignalMode;
@@ -521,11 +554,49 @@ namespace CORC.Demo
             scoreLogIsRecording = false;
         }
 
+        private bool TryStartDisturbanceLogRecording()
+        {
+            if (!recordingEnabled || !disturbanceLogRecordFlag || disturbanceLogIsRecording) return false;
+
+            if (disturbanceLogWriter == null)
+            {
+                string logPath = ConfigDisturbanceLogFilePath();
+                bool append = File.Exists(logPath) && new FileInfo(logPath).Length > 0;
+                disturbanceLogWriter = new StreamWriter(logPath, append, Encoding.ASCII);
+                if (!append)
+                {
+                    disturbanceLogWriter.WriteLine("block,section,probability,direction,triggered");
+                    disturbanceLogWriter.Flush();
+                }
+            }
+
+            disturbanceLogIsRecording = true;
+            return true;
+        }
+
+        private bool TryStopDisturbanceLogRecording()
+        {
+            if (!disturbanceLogIsRecording) return false;
+
+            try { disturbanceLogWriter?.Flush(); } catch { }
+            disturbanceLogIsRecording = false;
+            return true;
+        }
+
+        private void CloseDisturbanceLogSession()
+        {
+            try { disturbanceLogWriter?.Flush(); } catch { }
+            try { disturbanceLogWriter?.Dispose(); } catch { }
+            disturbanceLogWriter = null;
+            disturbanceLogIsRecording = false;
+        }
+
         public bool StartAuxRecordingManual()
         {
             bool changed = false;
             if (TryStartEmgRecording()) changed = true;
             if (TryStartScoreLogRecording()) changed = true;
+            if (TryStartDisturbanceLogRecording()) changed = true;
             return changed;
         }
 
@@ -534,7 +605,19 @@ namespace CORC.Demo
             bool changed = false;
             if (TryStopEmgRecording()) changed = true;
             if (TryStopScoreLogRecording()) changed = true;
+            if (TryStopDisturbanceLogRecording()) changed = true;
             return changed;
+        }
+
+        public void CloseAuxRecordingSessions()
+        {
+            StopAuxRecordingManual();
+            CloseScoreLogSession();
+            CloseDisturbanceLogSession();
+            emgSessionFilePath = null;
+            scoreLogSessionFilePath = null;
+            disturbanceLogSessionFilePath = null;
+            recStarted = false;
         }
 
         private void ShutdownEMG()
@@ -542,8 +625,7 @@ namespace CORC.Demo
             if (emgShutdown) return;
             emgShutdown = true;
 
-            try { StopAuxRecordingManual(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG/score log stop during shutdown failed: {ex.Message}"); }
-            try { CloseScoreLogSession(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] score log close during shutdown failed: {ex.Message}"); }
+            try { CloseAuxRecordingSessions(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] recording close during shutdown failed: {ex.Message}"); }
             if (!delsysEnable) return;
             try { if (delsysEMG.IsRunning()) delsysEMG.StopAcquisition(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG stop acquisition during shutdown failed: {ex.Message}"); }
             try { if (delsysEMG.IsConnected()) delsysEMG.Close(); } catch (Exception ex) { Debug.LogWarning($"[M2RoverBridge] EMG close during shutdown failed: {ex.Message}"); }
@@ -745,6 +827,21 @@ namespace CORC.Demo
             }
         }
 
+        public void LogDisturbanceDecision(int block, int section, float probability, int direction, bool triggered)
+        {
+            if (!recordingEnabled || !disturbanceLogRecordFlag || !disturbanceLogIsRecording || disturbanceLogWriter == null) return;
+
+            StringBuilder line = new StringBuilder(64);
+            line.Append(block).Append(',')
+                .Append(section).Append(',')
+                .Append(probability.ToString("F6")).Append(',')
+                .Append(direction).Append(',')
+                .Append(triggered ? 1 : 0);
+
+            disturbanceLogWriter.WriteLine(line.ToString());
+            disturbanceLogWriter.Flush();
+        }
+
         // ----------------------------------------------------------------------------------------------------------------------
         // --- Public methods to be called by UI or other components ---
 
@@ -813,9 +910,7 @@ namespace CORC.Demo
         // This should be called when the current block ends.
         public void NotifyBlockEnd()
         {
-            StopAuxRecordingManual();
-            emgSessionFilePath = null;
-            recStarted = false;
+            CloseAuxRecordingSessions();
 
             blockActive = false;
             syncRefReady = false;
@@ -1032,7 +1127,7 @@ namespace CORC.Demo
             
             float disturbanceMagnitude = disturbanceForceMode == DisturbanceForceMode.Manual
                 ? manualDisturbanceForce
-                : CalibForce * 0.4f;
+                : CalibForce * 0.25f;
             disturbanceMagnitude = Mathf.Clamp(disturbanceMagnitude, 1f, 50f);
             double disturbanceCmd = state ? (direction < 0 ? -disturbanceMagnitude : disturbanceMagnitude) : 0.0;
 

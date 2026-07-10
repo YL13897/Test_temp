@@ -486,7 +486,7 @@ namespace CORC.Demo
         {
             if (bridge == null) return;
 
-            bridge.StopAuxRecordingManual();
+            bridge.CloseAuxRecordingSessions();
             RecordBtnInteract();
         }
 

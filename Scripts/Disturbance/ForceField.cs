@@ -16,6 +16,7 @@ public class ForceField : MonoBehaviour
     // get; -> Anyone can read the value
     // private set; Only this class can change the value
     public bool IsActiveThisRun { get; private set; }
+    private CORC.Demo.M2RoverBridge bridge;
     private bool playerInsideThisActiveField = false;
     private float disturbanceElapsedSec = 0f;
 
@@ -23,6 +24,7 @@ public class ForceField : MonoBehaviour
     {
         if (forceFieldPreview == null)
             forceFieldPreview = GetComponent<ForceFieldPreview>();
+        bridge = FindFirstObjectByType<CORC.Demo.M2RoverBridge>();
     }
 
     // ResetFirstEntryFlag(): Resets the static flags related to player entry and disturbance.
@@ -82,6 +84,17 @@ public class ForceField : MonoBehaviour
             ? ExperimentBlockControl.Instance.TriggerDisturbance(Probability)
             : UnityEngine.Random.value < Probability;
 
+        if (bridge == null)
+            bridge = FindFirstObjectByType<CORC.Demo.M2RoverBridge>();
+
+        if (bridge != null)
+        {
+            var control = ExperimentBlockControl.Instance;
+            int block = control != null ? control.CurrentBlockNumber : 0;
+            int section = control != null ? control.CurrentSectionNumber : 0;
+            int direction = control != null ? control.CurrentDirection : forceFieldPreview.CurrentDirection;
+            bridge.LogDisturbanceDecision(block, section, Probability, direction, IsActiveThisRun);
+        }
 
         // ----------------------- For testing: keep the field always active -----------------------
 

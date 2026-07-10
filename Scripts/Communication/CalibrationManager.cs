@@ -60,7 +60,7 @@ namespace CORC.Demo
         public bool autoLaunchExternalProgram = true;
         public ExternalProgramType externalProgramType = ExternalProgramType.Python;
         public string pythonExecutable = "C:\\Users\\yixianglin\\AppData\\Local\\Programs\\Python\\Python313\\python.exe";
-        public string externalProgramPath = "D:\\yixianglin\\Desktop\\M2_PHRI\\M2_PHRI\\M2MachineHRI\\Calibration\\calibration_client.py";
+        public string externalProgramPath = "D:\\Unity Projects\\Rover\\Assets\\Test\\Calibration\\calibration_client.py";
         public string externalProgramArgs = ""; // Additional command-line arguments for the external program (optional)
 
         [Header("Local TCP")]

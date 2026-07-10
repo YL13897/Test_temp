@@ -9,8 +9,8 @@ public class ScoreSystem : MonoBehaviour
     [SerializeField] Rigidbody leaderRb;
 
     [Header("Scoring Parameters")]
-    const float scoreDuration = 1.7f;
-    public float penaltyValue = 500f;
+    const float scoreDuration = 1.4f; // Change this based on the duration of the scoring period (in seconds). Check the ScoringZone parameter in Section prefab to determine this value.
+    public float penaltyValue = 100f;
 
     [Header("Composite Score Weights")]
     [SerializeField]  float w_tr = 100f; // Total tracking reward for an episode
@@ -84,12 +84,35 @@ public class ScoreSystem : MonoBehaviour
         float e = xRover - xLeader;
         bool m2Mode = bridge != null && bridge.unityMode == CORC.Demo.M2RoverBridge.UnityDriveMode.Mode2_M2;
         float handleFx = m2Mode ? GetForceSensorX() : 0f;
+
+        // Smooth approximation of absolute tracking error:
+        //
+        //     smoothAbs(e) = sqrt(e² + eps²) - eps
+        //
+        // This behaves approximately like |e|, but is differentiable at e = 0.
         const float trackEps = 0.02f;
-        float trackZeroError = 0.25f * 8.5f; // 25% of the total tracking range (8.5). This is where the tracking score rate is zero.
+
+        // Reference error used for normalisation.
+        // float trackZeroError = 0.25f * 8.5f; // [-100,100] scroe range. At |e| = 25% × 8.5 = 2.125, the normalised tracking cost is approximately w_tr. 25% of the total tracking range (8.5). This is where the tracking score rate is zero.
+        float trackZeroError = 8.5f; // [0-100] score range.
+
+        // smoothAbs evaluated at the reference error.
         float trackNormaliser = Mathf.Sqrt(trackZeroError * trackZeroError + trackEps * trackEps) - trackEps;
+        // Smooth absolute value of the current tracking error.
         float trackSmoothAbs = Mathf.Sqrt(e * e + trackEps * trackEps) - trackEps;
-        float trackCost = w_tr * trackSmoothAbs / Mathf.Max(trackNormaliser, 0.0001f);
-        float trackReward = w_tr - trackCost;
+
+        // Normalised tracking cost:
+        //
+        //     C_track(e) = w_tr × smoothAbs(e) / smoothAbs(trackRefError)
+        //
+        // Therefore:
+        //     e = 0              -> C_track = 0
+        //     |e| = trackRefError -> C_track ≈ w_tr
+        float trackCost = w_tr * trackSmoothAbs / trackNormaliser;
+
+        // float trackReward = w_tr - trackCost; // For [-100,100] scroe range.
+        float trackReward = Mathf.Clamp(w_tr - trackCost, 0f, w_tr);  // For [0,100] score range.
+
         bool emgReady = bridge != null && bridge.HasValidSpi;
         float emgQuality = emgReady
             ? Mathf.Clamp01(bridge.EmgEffortScore / 100f)

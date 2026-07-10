@@ -7,15 +7,16 @@ public class ScoreManager : MonoBehaviour
     public static ScoreManager Instance { get; private set; }
 
     [Header("UI")]
-    [SerializeField] TextMeshProUGUI ScoreText;
     [SerializeField] TextMeshProUGUI emgScoreText;
     [SerializeField] TextMeshProUGUI TrialScoreText;
     [SerializeField] TextMeshProUGUI DebugTrialScoreText;
     [SerializeField] bool alwaysShowTrialScore = false;
     [SerializeField] bool showTotalOnly = false;
+    [SerializeField] bool useTrackScore = true;
+    [SerializeField] bool useStiffnessScore = true;
+    [SerializeField] bool useForceScore = false;
     [SerializeField] Slider sectionBar;
 
-    public float GlobalScore { get; private set; }
     public float SectionScore { get; private set; }
     public float EmgScore { get; private set; }
     public float TrackSectionScore { get; private set; }
@@ -38,6 +39,8 @@ public class ScoreManager : MonoBehaviour
     private float lastForceScore;
     private float lastEmgScore;
     private float lastTotalScore;
+    private float displaySectionScore;
+    private float lastDisplayScore;
     private bool showLiveScore;
     private CORC.Demo.M2RoverBridge bridge;
 
@@ -49,7 +52,6 @@ public class ScoreManager : MonoBehaviour
         // Optional: persist across scene reloads
         // DontDestroyOnLoad(gameObject);
 
-        if (ScoreText != null) ScoreText.raycastTarget = false;
         if (emgScoreText != null) emgScoreText.raycastTarget = false;
         if (TrialScoreText != null) TrialScoreText.raycastTarget = false;
         if (DebugTrialScoreText != null) DebugTrialScoreText.raycastTarget = false;
@@ -60,7 +62,6 @@ public class ScoreManager : MonoBehaviour
 
     public void ResetAll()
     {
-        GlobalScore = 0f;
         EmgScore = 0f;
         EmgTimestamp = 0.0;
         EmgDetails = "";
@@ -79,6 +80,9 @@ public class ScoreManager : MonoBehaviour
         HasStartedScoring = true;
         SectionScoringActive = true;
         showLiveScore = true;
+        if (!alwaysShowTrialScore)
+            HideTrialScore();
+        RefreshUI();
     }
 
     public void SetEmgScore(float score, double timestamp)
@@ -114,6 +118,7 @@ public class ScoreManager : MonoBehaviour
     public void ResetSection()
     {
         SectionScore = 0f;
+        displaySectionScore = 0f;
         TrackSectionScore = 0f;
         ForceSectionScore = 0f;
         ForceAvg = 0f;
@@ -132,8 +137,8 @@ public class ScoreManager : MonoBehaviour
 
     public void ResetBlockScores()
     {
-        GlobalScore = 0f;
         SectionScore = 0f;
+        displaySectionScore = 0f;
         TrackSectionScore = 0f;
         ForceSectionScore = 0f;
         ForceAvg = 0f;
@@ -159,8 +164,9 @@ public class ScoreManager : MonoBehaviour
     public void AddToScores(float trackDelta, float forceDelta, float emgDelta)
     {
         float delta = trackDelta + forceDelta + emgDelta;
-        GlobalScore += delta;
+        float displayDelta = SelectedScore(trackDelta, forceDelta, emgDelta);
         SectionScore += delta;
+        displaySectionScore += displayDelta;
         TrackSectionScore += trackDelta;
         ForceSectionScore += forceDelta;
         EmgSectionScore += emgDelta;
@@ -176,8 +182,11 @@ public class ScoreManager : MonoBehaviour
 
     public void ApplyBoundaryPenalty(float penalty)
     {
-        GlobalScore -= penalty;
         SectionScore -= penalty;
+        if (useTrackScore)
+        {
+            displaySectionScore -= penalty;
+        }
 
         RefreshUI();
     }
@@ -197,6 +206,7 @@ public class ScoreManager : MonoBehaviour
         lastForceScore = ForceSectionScore;
         lastEmgScore = EmgSectionScore;
         lastTotalScore = SectionScore;
+        lastDisplayScore = displaySectionScore;
         showLiveScore = false;
         ShowTrialScore(false);
     }
@@ -229,6 +239,7 @@ public class ScoreManager : MonoBehaviour
         lastForceScore = 0f;
         lastEmgScore = 0f;
         lastTotalScore = 0f;
+        lastDisplayScore = 0f;
         showLiveScore = false;
     }
 
@@ -242,15 +253,39 @@ public class ScoreManager : MonoBehaviour
         TotalCost = 0f;
     }
 
+    float SelectedScore(float track, float force, float stiffness)
+    {
+        float total = 0f;
+        float count = 0f;
+        if (useTrackScore) { total += track; count++; }
+        if (useStiffnessScore) { total += stiffness; count++; }
+        if (useForceScore) { total += force; count++; }
+        return count > 0f ? total / count : 0f;
+    }
+
     string FormatTrialScore(bool live, bool totalOnly = false)
     {
         float track = live ? TrackSectionScore : lastTrackScore;
         float force = live ? ForceSectionScore : lastForceScore;
         float emg = live ? EmgSectionScore : lastEmgScore;
-        float total = live ? SectionScore : lastTotalScore;
+        float total = live ? displaySectionScore : lastDisplayScore;
 
         if (totalOnly)
             return $"Total: {total:0.0}";
+
+        string text = "";
+        if (useTrackScore) text += $"Track: {track:0.0}\n";
+        if (useStiffnessScore) text += $"Stiffness: {emg:0.0}\n";
+        if (useForceScore) text += $"Force: {force:0.0}\n";
+        return text + $"Total: {total:0.0}";
+    }
+
+    string FormatDebugTrialScore(bool live)
+    {
+        float track = live ? TrackSectionScore : lastTrackScore;
+        float force = live ? ForceSectionScore : lastForceScore;
+        float emg = live ? EmgSectionScore : lastEmgScore;
+        float total = live ? SectionScore : lastTotalScore;
 
         return
             $"Track: {track:0.0}\n" +
@@ -273,9 +308,6 @@ public class ScoreManager : MonoBehaviour
 
     void RefreshUI()
     {
-        if (ScoreText != null)
-            ScoreText.text = $"Block Score: {GlobalScore:0}";
-
         if (emgScoreText != null)
             emgScoreText.text = string.IsNullOrEmpty(EmgDetails)
                 ? $"EMG: {EmgScore:0.00} | t: {EmgTimestamp:0.000}s"
@@ -285,6 +317,6 @@ public class ScoreManager : MonoBehaviour
             ShowTrialScore(SectionScoringActive);
 
         if (DebugTrialScoreText != null)
-            DebugTrialScoreText.text = FormatTrialScore(showLiveScore);
+            DebugTrialScoreText.text = FormatDebugTrialScore(showLiveScore);
     }
 }
