@@ -96,10 +96,7 @@ namespace CORC.Demo
             if (toAButton) toAButton.interactable = IsM2Mode;
             if (emergencyStopBtn) emergencyStopBtn.interactable = IsM2Mode;
             if (startCalibrBtn)
-            {
-                startCalibrBtn.interactable = calibrationManager != null &&
-                    calibrationManager.CanStartCalibration();
-            }
+                startCalibrBtn.interactable = true;
             
         }
 

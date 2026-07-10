@@ -76,7 +76,7 @@ namespace CORC.Demo
 
         public bool IsListenerRunning => listener != null;
         public bool IsClientConnected => client != null && client.Connected;
-        public bool IsCalibrationActive => IsListenerRunning || IsClientConnected || externalProcess != null;
+        public bool IsCalibrationActive => IsClientConnected || (externalProcess != null && !externalProcess.HasExited);
         public string LastStatus { get; private set; } = "Idle";
 
         private TcpListener listener;
@@ -92,6 +92,7 @@ namespace CORC.Demo
 
         public bool CanStartCalibration()
         {
+            ClearExitedExternalProcess();
             return !IsCalibrationActive;
         }
 
@@ -345,6 +346,8 @@ namespace CORC.Demo
 
         private bool StartExternalProcess()
         {
+            ClearExitedExternalProcess();
+
             if (externalProcess != null && !externalProcess.HasExited)
                 return true;
 
@@ -369,6 +372,15 @@ namespace CORC.Demo
                 Debug.LogWarning($"[CalibrationManager] External launch failed: {ex.Message}");
                 return false;
             }
+        }
+
+        private void ClearExitedExternalProcess()
+        {
+            if (externalProcess == null || !externalProcess.HasExited)
+                return;
+
+            externalProcess.Dispose();
+            externalProcess = null;
         }
 
         private string BuildProcessFileName()

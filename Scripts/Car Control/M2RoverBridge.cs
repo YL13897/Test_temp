@@ -41,6 +41,7 @@ namespace CORC.Demo
         public Rigidbody roverRigidbody;
 
         [Header("Participant Calibration")]
+        [SerializeField, Range(0f, 1f)] private float DisturbanceFactor = 0.3f;
         public float CalibForce = 50f;
         public float StandbyK = 1200f;
         public float[] EmgRest = Array.Empty<float>();
@@ -1127,7 +1128,7 @@ namespace CORC.Demo
             
             float disturbanceMagnitude = disturbanceForceMode == DisturbanceForceMode.Manual
                 ? manualDisturbanceForce
-                : CalibForce * 0.25f;
+                : CalibForce * DisturbanceFactor;
             disturbanceMagnitude = Mathf.Clamp(disturbanceMagnitude, 1f, 50f);
             double disturbanceCmd = state ? (direction < 0 ? -disturbanceMagnitude : disturbanceMagnitude) : 0.0;
 

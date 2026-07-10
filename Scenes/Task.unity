@@ -2930,6 +2930,7 @@ MonoBehaviour:
   estimator: {fileID: 507810796}
   roverTransform: {fileID: 481331129}
   roverRigidbody: {fileID: 481331123}
+  DisturbanceFactor: 0.3
   CalibForce: 50
   StandbyK: 1200
   EmgRest: []
@@ -3011,7 +3012,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CORC.Demo.CalibrationManager
   bridge: {fileID: 507810793}
-  estimator: {fileID: 0}
+  estimator: {fileID: 507810796}
   autoLaunchExternalProgram: 1
   externalProgramType: 0
   pythonExecutable: C:\Users\yixianglin\AppData\Local\Programs\Python\Python313\python.exe
