@@ -119,6 +119,19 @@ def average_force(samples, direction):
     return float(np.mean(values)) if values else 0.0
 
 
+def average_fsr(samples):
+    voltages = []
+    forces = []
+    for sample in samples:
+        if not sample.get("hasFsr", False):
+            continue
+        voltages.append(float(sample.get("fsrVoltage", 0.0)))
+        forces.append(float(sample.get("graspForceN", 0.0)))
+    if not voltages:
+        return None, None
+    return float(np.mean(voltages)), float(np.mean(forces))
+
+
 def fit_emg_force(profile):
     if not profile.emg_rest:
         return [], 0.0, 0.0, 0.0, [], []
@@ -163,12 +176,15 @@ def fit_emg_force(profile):
         row.append(1.0)
         rows.append(row)
         signed_force = direction * force_mean
+        fsr_voltage, grasp_force = average_fsr(samples)
         outputs.append(signed_force)
         trials.append(
             {
                 "key": key,
                 "force_mean": signed_force,
                 "emg_mean": [emg_mean[i] for i in valid_slots],
+                "fsr_voltage": fsr_voltage,
+                "grasp_force_N": grasp_force,
             }
         )
 
@@ -179,6 +195,12 @@ def fit_emg_force(profile):
         u = normalize_emg(emg, profile.emg_rest, profile.emg_ref)
         if not u:
             continue
+        if key == "rest":
+            fsr_voltage = profile.emg_rest_fsr_voltage
+            grasp_force = profile.emg_rest_grasp_force_N
+        else:
+            fsr_voltage = profile.bracing_fsr_voltage
+            grasp_force = profile.bracing_grasp_force_N
         row = [u[i] for i in valid_slots]
         row.append(1.0)
         rows.append(row)
@@ -188,6 +210,8 @@ def fit_emg_force(profile):
                 "key": key,
                 "force_mean": 0.0,
                 "emg_mean": [u[i] for i in valid_slots],
+                "fsr_voltage": fsr_voltage,
+                "grasp_force_N": grasp_force,
             }
         )
 

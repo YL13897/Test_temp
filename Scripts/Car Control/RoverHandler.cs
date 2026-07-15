@@ -22,10 +22,12 @@ public class RoverHandler : MonoBehaviour
     public float minX = -4.5f;
     public float maxX = 4.5f;
     public bool enableBoundaryClamp = true;
-    [SerializeField] float boundaryTolerance = 0.001f;
+    const float MinBoundaryTolerance = 0.001f;
+    [SerializeField] float boundaryTolerance = MinBoundaryTolerance;
     [SerializeField] ParticleSystem explosionL;
     [SerializeField] ParticleSystem explosionR;
     public bool BoundaryContact { get; private set; }
+    private bool boundaryHitLatched;
 
     // readonly int logEveryNFrames = 50;
     // public float sideDamping = 0.0f;
@@ -99,17 +101,24 @@ public class RoverHandler : MonoBehaviour
             explosionR?.Play();
     }
 
-    public void UpdateBoundaryContact(float minBoundary, float maxBoundary)
+    public bool ConsumeBoundaryHit()
     {
-        if (rb == null)
-        {
-            BoundaryContact = false;
-            return;
-        }
+        bool hit = boundaryHitLatched;
+        boundaryHitLatched = false;
+        return hit;
+    }
 
-        float tolerance = Mathf.Max(0f, boundaryTolerance);
-        float x = rb.position.x;
+    public void ResetBoundaryHit()
+    {
+        boundaryHitLatched = false;
+    }
+
+    public void UpdateBoundaryContact(float x, float minBoundary, float maxBoundary)
+    {
+        float tolerance = Mathf.Max(MinBoundaryTolerance, boundaryTolerance);
         BoundaryContact = x <= minBoundary + tolerance || x >= maxBoundary - tolerance;
+        if (BoundaryContact)
+            boundaryHitLatched = true;
     }
 
     public void SetPaused(bool paused)
@@ -145,7 +154,7 @@ public class RoverHandler : MonoBehaviour
     {
         Vector3 pos = rb.position;
         Vector3 vel = rb.linearVelocity;
-        UpdateBoundaryContact(minX, maxX);
+        UpdateBoundaryContact(pos.x, minX, maxX);
         if (!enableBoundaryClamp) return;
 
         bool clamped = false;

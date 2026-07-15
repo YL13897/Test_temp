@@ -17,7 +17,7 @@ public class M2WorldFollower : MonoBehaviour
     public float unityCenterX = 0f;
 
     [Header("Motion")]
-    [Range(0f, 1f)] public float smooth = 0.005f; // smoothness factor for position updates
+    [Range(0f, 1f)] public float smooth = 0f; // smoothness factor for position updates
     [Tooltip("How quickly sync bias returns to zero after disturbance.")]
     public float biasRecoverRate = 4f;
     [Tooltip("Clamp on disturbance-induced Unity X bias.")]
@@ -98,6 +98,7 @@ public class M2WorldFollower : MonoBehaviour
         hasBiasBase = false;
 
         float targetX = nominalX + syncXBias;
+        rover?.UpdateBoundaryContact(targetX, UnityXMin, UnityXMax);
         Vector3 target = BuildTargetPosition(targetX);
         
         ApplySmoothPosition(target);
@@ -200,7 +201,6 @@ public class M2WorldFollower : MonoBehaviour
         Vector3 next = markerRb.position;
         next.x = lastPos.x;
         markerRb.position = next;
-        rover?.UpdateBoundaryContact(UnityXMin, UnityXMax);
     }
 
 }

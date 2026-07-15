@@ -7,10 +7,12 @@ using System.Text;
 using System.Net;
 using System.Net.Sockets;
 using System.IO;
+using System.Diagnostics;
 // Threading includes
 using System.Threading;
 // Debug
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 // DelsysEMG: A Unity component that manages the connection to a Delsys EMG system, handles data acquisition in a background thread,
 //            processes EMG signals using an optional EMGFilter, and records processed frames through EmgRecordWriter.
@@ -30,7 +32,7 @@ public class DelsysEMG
     private const int commandPort = 50040;  //server command port
     private const int emgDataPort = 50043; //server emg data port
     private const int commandTimeoutMs = 3000;
-    private const int dataTimeoutMs = 30000;
+    private const int dataTimeoutMs = 5000;
 
     //The following are streams and readers/writers for communication
     private NetworkStream commandStream;
@@ -63,6 +65,7 @@ public class DelsysEMG
     private float[] scoreEnvelopeFrame = new float[16];
     private readonly object dataLock = new object();
     private readonly object recordingLock = new object();
+    private const int RecordingQueueLimit = 5000;
     private EMGFilter emgFilter;
     private IEmgDebugSink debugSink;
     private EMGFilter.EmgSignalView signalView = EMGFilter.EmgSignalView.Envelope;
@@ -72,6 +75,7 @@ public class DelsysEMG
     private double acquisitionTime = 0.0;
     private double scoreEnvelopeTime = 0.0;
     private long scoreEnvelopeSeq = 0;
+    private double lastFrameTime = -1.0;
 
     //Sensor status
     private volatile bool connected = false; //true if connected to server
@@ -81,9 +85,20 @@ public class DelsysEMG
 
 
     private readonly EmgRecordWriter recordingWriter = new EmgRecordWriter();
+    private readonly Queue<RecordingFrame> recordingQueue = new Queue<RecordingFrame>();
+    private Thread recordingThread;
     private long recordingSampleCount = 0;
+    private long recordingDroppedCount = 0;
     private double recordingStartT = double.NaN;
     private int recordingSec = 0;
+    private bool recordingWriterRunning = false;
+
+    private struct RecordingFrame
+    {
+        public double Time;
+        public int Sec;
+        public float[] Values;
+    }
 
     //Reset local state, clear data lists, and reset status flags
     private void ResetLocalState()
@@ -103,6 +118,7 @@ public class DelsysEMG
         acquisitionTime = 0.0;
         scoreEnvelopeTime = 0.0;
         scoreEnvelopeSeq = 0;
+        lastFrameTime = -1.0;
 
         recording = false;
         running = false;
@@ -113,14 +129,33 @@ public class DelsysEMG
 
     private void CloseRecordingWriter()
     {
-        lock (recordingLock)
+        Thread threadToJoin = null; 
+
+        // First lock: safely sets the stop flags, wakes the recording thread, and copies the thread reference.
+        lock (recordingLock) 
         {
             recording = false;
+            recordingWriterRunning = false;
+            Monitor.PulseAll(recordingLock); // Wake up the recording thread if it's waiting for new frames to write
+            threadToJoin = recordingThread;
+        }
+
+        // If the recording thread exists and is still running, Join() waits until it completely finishes.
+        if (threadToJoin != null && threadToJoin.IsAlive)
+            threadToJoin.Join();
+
+        // Second lock: after the thread has fully stopped, safely clears the shared queue and resets the recording state.
+        lock (recordingLock) 
+        {
+            recordingThread = null;
+            recordingQueue.Clear();
             recordingSampleCount = 0;
+            recordingDroppedCount = 0;
             recordingStartT = double.NaN;
             recordingSec = 0;
-            recordingWriter.Close();
         }
+
+        recordingWriter.Close();
     }
 
     private void CloseDataSocket()
@@ -173,8 +208,58 @@ public class DelsysEMG
             double t = double.IsNaN(recordingStartT)
                 ? recordingSampleCount * samplingInterval
                 : recordingStartT + recordingSampleCount * samplingInterval;
-            recordingWriter.WriteFrame(t, recordingSec, frame);
+
+            float[] values = new float[frame.Length];
+            Array.Copy(frame, values, frame.Length);
+            if (recordingQueue.Count >= RecordingQueueLimit)
+            {
+                recordingQueue.Dequeue();
+                recordingDroppedCount++;
+            }
+
+            recordingQueue.Enqueue(new RecordingFrame
+            {
+                Time = t,
+                Sec = recordingSec,
+                Values = values
+            });
             recordingSampleCount++;
+            Monitor.Pulse(recordingLock);
+        }
+    }
+
+    private void RecordingThreadRoutine()
+    {
+        while (true)
+        {
+            RecordingFrame frame;
+            lock (recordingLock)
+            {
+                while (recordingWriterRunning && recordingQueue.Count == 0)
+                    Monitor.Wait(recordingLock);
+
+                if (recordingQueue.Count == 0)
+                    return;
+
+                frame = recordingQueue.Dequeue();
+            }
+
+            try
+            {
+                recordingWriter.WriteFrame(frame.Time, frame.Sec, frame.Values);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Delsys-> EMG recording writer stopped: {ex.Message}");
+                lock (recordingLock)
+                {
+                    recording = false;
+                    recordingWriterRunning = false;
+                    recordingQueue.Clear();
+                    Monitor.PulseAll(recordingLock);
+                }
+                return;
+            }
         }
     }
 
@@ -401,14 +486,23 @@ public class DelsysEMG
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
+        CloseRecordingWriter();
+
         lock (recordingLock) // ensure we don't have a race condition where we start a new recording while the old one is still being finalized
         {
-            CloseRecordingWriter();
             recordingSampleCount = 0;
+            recordingDroppedCount = 0;
             recordingStartT = startT;
             recordingSec = sec;
             recordingWriter.Open(filename, format, GetSignalLabel(), GetChannelsActiveSensor(), samplingInterval);
+            recordingWriterRunning = true;
+            recordingThread = new Thread(RecordingThreadRoutine)
+            {
+                IsBackground = true,
+                Name = "EMG Recording Writer"
+            };
             recording = true;
+            recordingThread.Start();
         }
 
         Debug.Log("Delsys-> Recording...");
@@ -421,13 +515,18 @@ public class DelsysEMG
             return;
 
         long sampleCount;
+        long droppedCount;
         lock (recordingLock) // ensure we get the final sample count before stopping recording
         {
             sampleCount = recordingSampleCount;
+            droppedCount = recordingDroppedCount;
         }
 
         CloseRecordingWriter();
-        Debug.Log("Delsys-> " + sampleCount + " samples recorded.");
+        if (droppedCount > 0)
+            Debug.LogWarning($"Delsys-> {sampleCount} samples received for recording; {droppedCount} dropped before disk write.");
+        else
+            Debug.Log("Delsys-> " + sampleCount + " samples recorded.");
     }
 
     #endregion
@@ -518,9 +617,15 @@ public class DelsysEMG
         running = false;
         recording = false;
 
+        double now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+        double sinceCalibrationClose = now - CORC.Demo.CalibrationManager.LastCloseTime;
+        string calibrationNote = sinceCalibrationClose >= 0.0 && sinceCalibrationClose <= 10.0
+            ? $" Recent calibration TCP close {sinceCalibrationClose:F2}s ago."
+            : "";
+
         Debug.LogWarning(ex == null
-            ? $"Delsys-> Connection closed ({context})."
-            : $"Delsys-> Connection closed ({context}): {ex.Message}");
+            ? $"Delsys-> Connection closed ({context}).{calibrationNote}"
+            : $"Delsys-> Connection closed ({context}): {ex.Message}{calibrationNote}");
 
         CloseSockets();
         ResetLocalState();
@@ -582,6 +687,7 @@ public class DelsysEMG
                 // Stream the data;
                 for (int sn = 0; sn < 16; ++sn)
                     frame[sn] = reader.ReadSingle();
+                lastFrameTime = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
 
                 if (emgFilter != null)
                 {
@@ -627,6 +733,10 @@ public class DelsysEMG
             }
             catch (IOException e)
             {
+                double now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+                double stallSec = lastFrameTime > 0.0 ? now - lastFrameTime : -1.0;
+                if (stallSec >= 0.0)
+                    Debug.LogWarning($"Delsys-> EMG stream stalled for {stallSec:F2}s before IOException.");
                 if (running)
                     MarkDisconnected("IOException during EMG stream read", e);
                 break;

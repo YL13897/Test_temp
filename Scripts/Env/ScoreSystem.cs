@@ -63,6 +63,7 @@ public class ScoreSystem : MonoBehaviour
             forceInt = 0f;
             forceTime = 0f;
             lastSectionNumber = 0;
+            rover?.ResetBoundaryHit();
             return;
         }
 
@@ -75,7 +76,7 @@ public class ScoreSystem : MonoBehaviour
         }
 
         if (rover != null
-            && rover.BoundaryContact
+            && rover.ConsumeBoundaryHit()
             && ScoreManager.Instance.TryApplyBoundaryPenalty(penaltyValue))
         {
             rover.PlayBoundaryExplosion();

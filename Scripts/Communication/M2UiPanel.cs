@@ -21,6 +21,7 @@ namespace CORC.Demo
         public TMP_Text statusTxt;
         public TMP_Text disturbanceTxt;
         public TMP_Text calibrationTxt;
+        public TMP_Text graspForceTxt;
         public Slider kSlider;
         public Slider kSlider2;
 
@@ -178,6 +179,22 @@ namespace CORC.Demo
             slider.minValue = bridge.StiffnessMin;
             slider.maxValue = bridge.StiffnessMax;
             slider.value = Mathf.Clamp(bridge.StiffnessCmd, slider.minValue, slider.maxValue);
+        }
+
+        private void UpdateGraspForceText()
+        {
+            if (graspForceTxt == null)
+                return;
+
+            if (bridge == null)
+            {
+                graspForceTxt.text = "Grasp: -- (no bridge)";
+                return;
+            }
+
+            graspForceTxt.text = bridge.TryGetGraspForce(out float force)
+                ? $"Grasp: {force:0.00} N"
+                : $"Grasp: -- ({bridge.FsrStatus})";
         }
 
         // Try to apply pending HRI/CTRL mode settings if we are waiting for M2 to be ready at A after BGIN
@@ -577,6 +594,7 @@ namespace CORC.Demo
             // if (disturbanceTxt) disturbanceTxt.text = $"Disturbance: {ForceField.DisturbanceU:F1}";
             UpdateCalibrationText();
             UpdateKSlider();
+            UpdateGraspForceText();
 
             if (!IsM2Mode)
             {

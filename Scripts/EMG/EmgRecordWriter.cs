@@ -12,7 +12,7 @@ public enum EmgRecordFormat
 
 public sealed class EmgRecordWriter : IDisposable
 {
-    private const int CsvFlushInterval = 128;
+    private const int CsvFlushInterval = 2048;
     private const int Hdf5ChunkFrames = 512;
 
     private readonly object syncRoot = new object();

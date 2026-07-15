@@ -30,6 +30,9 @@ namespace CORC.Demo
             public float[] emg = Array.Empty<float>();
             public int[] emgChannels = Array.Empty<int>();
             public int[] emgSlots = Array.Empty<int>();
+            public bool hasFsr;
+            public float fsrVoltage;
+            public float graspForceN;
             public float calibForce;
             public float standbyK;
             public long unityTicksUtc;
@@ -67,6 +70,7 @@ namespace CORC.Demo
         public string listenAddress = "127.0.0.1";
         public int listenPort = 25001;
         public float sampleSendHz = 40f;
+        private const int FlushEverySamples = 10;
 
         [Header("Last Returned Params")]
         public float lastReturnedEmgScale;
@@ -77,6 +81,7 @@ namespace CORC.Demo
         public bool IsListenerRunning => listener != null;
         public bool IsClientConnected => client != null && client.Connected;
         public bool IsCalibrationActive => IsClientConnected || (externalProcess != null && !externalProcess.HasExited);
+        public static double LastCloseTime { get; private set; } = -1000.0;
         public string LastStatus { get; private set; } = "Idle";
 
         private TcpListener listener;
@@ -88,7 +93,12 @@ namespace CORC.Demo
         private readonly object clientLock = new object();
         private Process externalProcess;
         private float nextSendTime;
-        private float sampleSendInterval = 0.025f;
+        private float sampleSendInterval;
+        private int samplesSinceFlush;
+        private readonly CalibrationSample sample = new CalibrationSample();
+        private readonly double[] m2Position = new double[2];
+        private readonly double[] m2Force = new double[2];
+        private readonly int[] emgSlots = new int[6];
 
         public bool CanStartCalibration()
         {
@@ -207,8 +217,9 @@ namespace CORC.Demo
                 CloseClientLocked();
                 client = accepted;
                 NetworkStream stream = client.GetStream();
-                clientWriter = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
+                clientWriter = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = false };
                 clientReader = new StreamReader(stream, Encoding.UTF8);
+                samplesSinceFlush = 0;
                 var receiveThread = new Thread(ReceiveLoop) { IsBackground = true };
                 receiveThread.Start();
             }
@@ -246,7 +257,7 @@ namespace CORC.Demo
             {
                 lock (clientLock)
                 {
-                    CloseClientLocked();
+                    CloseClientLocked(false);
                 }
                 LastStatus = "External client disconnected.";
             }
@@ -306,23 +317,24 @@ namespace CORC.Demo
             if (bridge == null)
                 return;
 
-            var sample = new CalibrationSample
-            {
-                keyboardMode = bridge.unityMode == M2RoverBridge.UnityDriveMode.Mode1_Keyboard,
-                calibForce = bridge.CalibForce,
-                standbyK = bridge.StandbyK,
-                unityTicksUtc = DateTime.UtcNow.Ticks
-            };
+            sample.keyboardMode = bridge.unityMode == M2RoverBridge.UnityDriveMode.Mode1_Keyboard;
+            sample.calibForce = bridge.CalibForce;
+            sample.standbyK = bridge.StandbyK;
+            sample.unityTicksUtc = DateTime.UtcNow.Ticks;
 
-            sample.hasM2 = bridge.TryGetM2Sample(out double m2Time, out double[] position, out double[] force);
+            sample.hasM2 = bridge.TryGetM2Sample(out double m2Time, m2Position, m2Force);
             sample.m2Time = m2Time;
-            sample.m2Position = sample.hasM2 ? position : Array.Empty<double>();
-            sample.m2Force = sample.hasM2 ? force : Array.Empty<double>();
+            sample.m2Position = sample.hasM2 ? m2Position : Array.Empty<double>();
+            sample.m2Force = sample.hasM2 ? m2Force : Array.Empty<double>();
 
             float[] emg = bridge.GetScoreEnvelopeData();
             sample.emg = emg;
             sample.emgChannels = emg.Length > 0 ? bridge.GetActiveEmgChannels() : Array.Empty<int>();
-            sample.emgSlots = bridge.GetConfiguredEmgChannels();
+            bridge.FillConfiguredEmgChannels(emgSlots);
+            sample.emgSlots = emgSlots;
+            sample.hasFsr = bridge.TryGetGraspForceSample(out float fsrVoltage, out float graspForce);
+            sample.fsrVoltage = fsrVoltage;
+            sample.graspForceN = graspForce;
 
             string line = JsonUtility.ToJson(sample);
 
@@ -334,11 +346,17 @@ namespace CORC.Demo
                 try
                 {
                     clientWriter.WriteLine(line);
+                    samplesSinceFlush++;
+                    if (samplesSinceFlush >= FlushEverySamples)
+                    {
+                        clientWriter.Flush();
+                        samplesSinceFlush = 0;
+                    }
                 }
                 catch (IOException ex)
                 {
                     Debug.LogWarning($"[CalibrationManager] Send failed: {ex.Message}");
-                    CloseClientLocked();
+                    CloseClientLocked(false);
                     LastStatus = "External client disconnected during send.";
                 }
             }
@@ -428,7 +446,11 @@ namespace CORC.Demo
             try
             {
                 if (!externalProcess.HasExited)
-                    externalProcess.Kill();
+                {
+                    externalProcess.CloseMainWindow();
+                    if (!externalProcess.WaitForExit(1500))
+                        externalProcess.Kill();
+                }
             }
             catch (Exception ex)
             {
@@ -458,14 +480,23 @@ namespace CORC.Demo
             listenerThread = null;
         }
 
-        private void CloseClientLocked()
+        private void CloseClientLocked(bool flush = true)
         {
+            bool hadClient = clientWriter != null || clientReader != null || client != null;
+            if (hadClient)
+                LastCloseTime = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+
+            if (flush)
+            {
+                try { clientWriter?.Flush(); } catch { }
+            }
             try { clientWriter?.Dispose(); } catch { }
             try { clientReader?.Dispose(); } catch { }
             try { client?.Close(); } catch { }
             clientWriter = null;
             clientReader = null;
             client = null;
+            samplesSinceFlush = 0;
         }
     }
 }

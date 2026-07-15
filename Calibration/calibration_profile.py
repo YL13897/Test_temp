@@ -12,12 +12,20 @@ from dataclasses import dataclass, field
 class CalibrationProfile:
     participant_id: str = "P01"
     emg_rest: list = field(default_factory=list)
+    emg_rest_fsr_voltage: float = None
+    emg_rest_grasp_force_N: float = None
     emg_ref: list = field(default_factory=list)
     left_force_ref: float = 0.0
     right_force_ref: float = 0.0
     emg_left_mvc: list = field(default_factory=list)
+    left_mvc_fsr_voltage: float = None
+    left_mvc_grasp_force_N: float = None
     emg_right_mvc: list = field(default_factory=list)
+    right_mvc_fsr_voltage: float = None
+    right_mvc_grasp_force_N: float = None
     emg_bracing: list = field(default_factory=list)
+    bracing_fsr_voltage: float = None
+    bracing_grasp_force_N: float = None
     emg_force_weights: list = field(default_factory=list)
     emg_force_bias: float = 0.0
     spi_rest: float = 0.0
@@ -68,12 +76,20 @@ def save_profile(profile, directory, base_id):
     data = {
         "participant_id": profile.participant_id,
         "emg_rest": profile.emg_rest,
+        "emg_rest_fsr_voltage": profile.emg_rest_fsr_voltage,
+        "emg_rest_grasp_force_N": profile.emg_rest_grasp_force_N,
         "emg_ref": profile.emg_ref,
         "left_force_ref": profile.left_force_ref,
         "right_force_ref": profile.right_force_ref,
         "emg_left_mvc": profile.emg_left_mvc,
+        "left_mvc_fsr_voltage": profile.left_mvc_fsr_voltage,
+        "left_mvc_grasp_force_N": profile.left_mvc_grasp_force_N,
         "emg_right_mvc": profile.emg_right_mvc,
+        "right_mvc_fsr_voltage": profile.right_mvc_fsr_voltage,
+        "right_mvc_grasp_force_N": profile.right_mvc_grasp_force_N,
         "emg_bracing": profile.emg_bracing,
+        "bracing_fsr_voltage": profile.bracing_fsr_voltage,
+        "bracing_grasp_force_N": profile.bracing_grasp_force_N,
         "emg_force_weights": profile.emg_force_weights,
         "emg_force_bias": profile.emg_force_bias,
         "spi_rest": profile.spi_rest,

@@ -40,6 +40,13 @@ namespace CORC.Demo
         public Transform roverTransform;
         public Rigidbody roverRigidbody;
 
+        [Header("FSR Grasp Force")]
+        [SerializeField] private bool fsrEnable = false;
+        [SerializeField] private FsrGraspForceReader fsrReader;
+        private bool fsrStateApplied = false;
+        private bool lastFsrEnable = false;
+        private FsrGraspForceReader lastFsrReader = null;
+
         [Header("Participant Calibration")]
         [SerializeField, Range(0f, 1f)] private float DisturbanceFactor = 0.3f;
         public float CalibForce = 50f;
@@ -53,23 +60,26 @@ namespace CORC.Demo
         public M2AxisMode m2Axis = M2AxisMode.X;
         [Tooltip("If enabled, M2 TRIAL uses admittance control on the moving axis.")]
         public bool useM2Admittance = true;
+        [Tooltip("M2 standby A.x. Only used in Y-axis mode. If invalid or outside the safe range, Unity sends a safe default.")]
+        [SerializeField] private float standbyAX = 0.44f;
+        [Tooltip("M2 standby A.y. Only used in X-axis mode. If invalid or outside the safe range, Unity sends a safe default.")]
+        [SerializeField] private float standbyAY = 0.20f;
         private const float M2XMin = 0.0f;
         private const float M2XMax = 0.64f;
-        // Boundary mapping reference: X 0.20..0.44, Y 0.12..0.38.
-        // private const float M2XBoundaryMin = 0.20f;
-        // private const float M2XBoundaryMax = 0.44f;
+        private const float M2XBoundaryMin = 0.20f;
+        private const float M2XBoundaryMax = 0.44f;
         private const float M2XCenter = 0.32f;
         private const float M2YMin = 0.0f;
         private const float M2YMax = 0.50f;
-        // private const float M2YBoundaryMin = 0.12f;
-        // private const float M2YBoundaryMax = 0.38f;
+        private const float M2YBoundaryMin = 0.12f;
+        private const float M2YBoundaryMax = 0.38f;
         private const float M2YCenter = 0.25f;
 
         public int M2Axis => (int)m2Axis;
         public float M2AxisMin => M2Axis == 0 ? M2XMin : M2YMin;
         public float M2AxisMax => M2Axis == 0 ? M2XMax : M2YMax;
-        public float M2BoundaryMin => M2Axis == 0 ? 0.20f : 0.12f;
-        public float M2BoundaryMax => M2Axis == 0 ? 0.44f : 0.38f;
+        public float M2BoundaryMin => M2Axis == 0 ? M2XBoundaryMin : M2YBoundaryMin;
+        public float M2BoundaryMax => M2Axis == 0 ? M2XBoundaryMax : M2YBoundaryMax;
         public float M2AxisCenter => M2Axis == 0 ? M2XCenter : M2YCenter;
 
         public enum UnityDriveMode
@@ -112,9 +122,6 @@ namespace CORC.Demo
         public float forcedVelOpenLoopKd = 2.5f;
         public float forcedVelSteerClamp = 0.30f;
 
-        [Header("Shared steering limits")]
-        public float steerClamp = 1.0f;
-        
         [Header("Common hotkeys")]
         public bool enableHotkeys = true;
 
@@ -141,6 +148,7 @@ namespace CORC.Demo
         private bool lastM2Connected = false; // Track M2 connection status to detect reconnects for auto-snapping
         private int sentM2Axis = -1;
         private bool sentM2Admittance = false;
+        private float sentLockedA = 0f; // To track the last sent locked A value to M2, to avoid redundant command sending
         private bool hasSentDisturbanceState = false; // To track whether we've sent the disturbance state to M2, to avoid redundant commands
         private bool lastDisturbanceState = false; // To track the last disturbance state sent to M2, for change detection
         private Vector3 roverInitialPosition; // To store the initial pose of the rover for resetting, captured in Awake()
@@ -218,6 +226,28 @@ namespace CORC.Demo
         private void ApplyEmgRuntimeSettings()
         {
             delsysEMG.SignalView = emgSignalMode;
+        }
+
+        private void ApplyFsrRuntimeSettings()
+        {
+            if (fsrReader != null)
+                fsrReader.SetRetryEnabled(!blockActive);
+
+            if (fsrStateApplied && fsrEnable == lastFsrEnable && fsrReader == lastFsrReader)
+                return;
+
+            if (lastFsrReader != null && lastFsrReader != fsrReader)
+            {
+                lastFsrReader.SetRetryEnabled(true);
+                lastFsrReader.SetReaderEnabled(false);
+            }
+
+            if (fsrReader != null)
+                fsrReader.SetReaderEnabled(fsrEnable);
+
+            lastFsrEnable = fsrEnable;
+            lastFsrReader = fsrReader;
+            fsrStateApplied = true;
         }
 
         private bool TryConnectEmg()
@@ -350,9 +380,18 @@ namespace CORC.Demo
 
         public bool TryGetM2Sample(out double time, out double[] position, out double[] force)
         {
-            time = 0.0;
             position = new double[2];
             force = new double[2];
+            return TryGetM2Sample(out time, position, force); // In C#, "out" lets a method return extra values (here, return also values of input variables) through its parameters.
+        }
+
+        public bool TryGetM2Sample(out double time, double[] position, double[] force)
+        {
+            time = 0.0;
+
+            // Reuse the existing position and force arrays if they are provided and have the correct length.
+            if (position == null || force == null || position.Length < 2 || force.Length < 2)
+                return false;
 
             if (!IsM2Connected())
                 return false;
@@ -422,6 +461,29 @@ namespace CORC.Demo
             if (m2.State == null || m2.State["F"] == null || m2.State["F"].Length < 1) return false;
             fx = (float)m2.State["F"][0];
             return !float.IsNaN(fx) && !float.IsInfinity(fx);
+        }
+
+        public bool TryGetGraspForce(out float force)
+        {
+            force = 0f;
+            return fsrEnable && fsrReader != null && fsrReader.TryGetForce(out force);
+        }
+
+        public bool TryGetGraspForceSample(out float voltage, out float force)
+        {
+            voltage = 0f;
+            force = 0f;
+            return fsrEnable && fsrReader != null && fsrReader.TryGetSample(out voltage, out force);
+        }
+
+        public string FsrStatus
+        {
+            get
+            {
+                if (!fsrEnable) return "disabled";
+                if (fsrReader == null) return "reader missing";
+                return fsrReader.Status;
+            }
         }
 
         public bool RecordingEnabled => recordingEnabled;
@@ -527,7 +589,8 @@ namespace CORC.Demo
                 scoreLogRowsSinceFlush = 0;
                 if (!append)
                 {
-                    scoreLogWriter.WriteLine("global_t,x_rover,x_leader,handle_fx,track_score,force_score,emg_score,total_score,block_index,section_index");
+                    string header = "global_t,x_rover,x_leader,handle_fx,track_score,force_score,emg_score,total_score,block_index,section_index,fsr_voltage,grasp_force_N";
+                    scoreLogWriter.WriteLine(header);
                     scoreLogWriter.Flush();
                 }
             }
@@ -607,6 +670,7 @@ namespace CORC.Demo
             if (TryStopEmgRecording()) changed = true;
             if (TryStopScoreLogRecording()) changed = true;
             if (TryStopDisturbanceLogRecording()) changed = true;
+            estimator?.CloseDebugCsv();
             return changed;
         }
 
@@ -616,8 +680,6 @@ namespace CORC.Demo
             CloseScoreLogSession();
             CloseDisturbanceLogSession();
             emgSessionFilePath = null;
-            scoreLogSessionFilePath = null;
-            disturbanceLogSessionFilePath = null;
             recStarted = false;
         }
 
@@ -817,7 +879,26 @@ namespace CORC.Demo
                 .Append(blockIndex).Append(',')
                 .Append(sectionIndex);
 
+            if (fsrEnable && fsrReader != null)
+            {
+                if (TryGetGraspForceSample(out float fsrVoltage, out float graspForce))
+                {
+                    line.Append(',')
+                        .Append(fsrVoltage.ToString("F6")).Append(',')
+                        .Append(graspForce.ToString("F6"));
+                }
+                else
+                {
+                    line.Append(",,");
+                }
+            }
+            else
+            {
+                line.Append(",,");
+            }
+
             scoreLogWriter.WriteLine(line.ToString());
+            estimator?.WriteDebugCsv(globalT);
             scoreLogRowsSinceFlush++;
 
             // Flush the writer every scoreLogFlushInterval rows to ensure data is written to disk in a timely manner without flushing on every single write.
@@ -1037,14 +1118,20 @@ namespace CORC.Demo
             if (m2 == null || !m2.IsInitialised() || m2.Client == null || !m2.Client.IsConnected()) return;
 
             int axis = M2Axis;
-            if (sentM2Axis == axis && sentM2Admittance == useM2Admittance) return;
+            bool validAX = !float.IsNaN(standbyAX) && !float.IsInfinity(standbyAX) && standbyAX >= M2XBoundaryMin && standbyAX <= M2XBoundaryMax;
+            bool validAY = !float.IsNaN(standbyAY) && !float.IsInfinity(standbyAY) && standbyAY >= M2YBoundaryMin && standbyAY <= M2YBoundaryMax;
+            float standbyA = axis == 0 ? (validAY ? standbyAY : 0.20f) : (validAX ? standbyAX : M2XBoundaryMax);
+            if (sentM2Axis == axis && sentM2Admittance == useM2Admittance &&
+                Mathf.Approximately(sentLockedA, standbyA)) return;
 
-            m2.SendCmd("S_AX", new double[] { axis, useM2Admittance ? 1.0 : 0.0 });
+            m2.SendCmd("S_AX", new double[] { axis, useM2Admittance ? 1.0 : 0.0, standbyA });
+
             sentM2Axis = axis;
             sentM2Admittance = useM2Admittance;
+            sentLockedA = standbyA;
             syncRefReady = false;
             worldFollower?.ResetBias();
-            Debug.Log($"[M2RoverBridge] Sent M2 axis mode: {(axis == 0 ? "X" : "Y")}, admittance={useM2Admittance}");
+            Debug.Log($"[M2RoverBridge] Sent M2 axis mode: {(axis == 0 ? "X" : "Y")}, admittance={useM2Admittance}, lockedA={standbyA:F3}");
         }
 
         // Safely attempt to read the selected M2 handle axis position from the M2 state.
@@ -1228,6 +1315,8 @@ namespace CORC.Demo
 
             if (delsysEnable && emgReconnectFlag && !blockActive && !IsEmgReady() && Time.unscaledTime >= nextEmgReconnectTime)
                 TryConnectEmg();
+
+            ApplyFsrRuntimeSettings();
 
             if (!recordingEnabled)
             {

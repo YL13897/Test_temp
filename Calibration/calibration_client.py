@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 from calibration_flow import CalibrationFlow
 from calibration_math import (
     average_force,
+    average_fsr,
     compute_emg_ref,
     emg_values,
     fit_emg_force,
@@ -207,6 +208,7 @@ class CalibrationApp(QWidget):
         self.force_label = QLabel("Force: 0.000 N")
         self.position_label = QLabel("Position: 0.000 m")
         self.emg_label = QLabel("EMG: --")
+        self.grasp_label = QLabel("Grasp: --")
         self.result_label = QLabel("Result: --")
         self.result_label.setWordWrap(True)
         self.debug_label = QLabel("TCP: disconnected | M2: false | samples: 0")
@@ -218,6 +220,7 @@ class CalibrationApp(QWidget):
         left_layout.addWidget(self.force_label)
         left_layout.addWidget(self.position_label)
         left_layout.addWidget(self.emg_label)
+        left_layout.addWidget(self.grasp_label)
         left_layout.addWidget(self.result_label)
         left_layout.addWidget(self.debug_label)
 
@@ -334,33 +337,58 @@ class CalibrationApp(QWidget):
             self.instruction_label.setText(instruction)
         self.append_log(message)
 
+    def grasp_result_text(self, force):
+        return f" | Avg grasp = {force:.3f} N" if force is not None else " | Avg grasp = --"
+
     def finish_step(self, key, samples):
         raw_key = {"left_mvc": "left_100", "right_mvc": "right_100"}.get(key, key)
         self.profile.raw[raw_key] = samples
         if key == "emg_rest":
             self.profile.emg_rest = mean_emg(samples)
+            (
+                self.profile.emg_rest_fsr_voltage,
+                self.profile.emg_rest_grasp_force_N,
+            ) = average_fsr(samples)
             self.profile.note = "EMG rest calibrated."
             self.result_text = "EMG rest: " + ", ".join(
                 f"Ch{i + 1}={value:.6g}"
                 for i, value in enumerate(self.profile.emg_rest)
-            )
+            ) + self.grasp_result_text(self.profile.emg_rest_grasp_force_N)
         elif key == "left_mvc":
             self.profile.left_force_ref = peak_force(samples, -1)
             self.profile.emg_left_mvc = robust_emg_peak(samples)
+            (
+                self.profile.left_mvc_fsr_voltage,
+                self.profile.left_mvc_grasp_force_N,
+            ) = average_fsr(samples)
             self.profile.note = "Left MVC calibrated."
-            self.result_text = f"Left MVC = {self.profile.left_force_ref:.3f} N"
+            self.result_text = (
+                f"Left MVC = {self.profile.left_force_ref:.3f} N"
+                f"{self.grasp_result_text(self.profile.left_mvc_grasp_force_N)}"
+            )
         elif key == "right_mvc":
             self.profile.right_force_ref = peak_force(samples, 1)
             self.profile.emg_right_mvc = robust_emg_peak(samples)
+            (
+                self.profile.right_mvc_fsr_voltage,
+                self.profile.right_mvc_grasp_force_N,
+            ) = average_fsr(samples)
             self.profile.note = "Right MVC calibrated."
-            self.result_text = f"Right MVC = {self.profile.right_force_ref:.3f} N"
+            self.result_text = (
+                f"Right MVC = {self.profile.right_force_ref:.3f} N"
+                f"{self.grasp_result_text(self.profile.right_mvc_grasp_force_N)}"
+            )
         elif key == "bracing":
             self.profile.emg_bracing = robust_emg_peak(samples)
+            (
+                self.profile.bracing_fsr_voltage,
+                self.profile.bracing_grasp_force_N,
+            ) = average_fsr(samples)
             self.profile.note = "Hold Stiff MVC calibrated."
             self.result_text = "Hold Stiff MVC: " + ", ".join(
                 f"Ch{i + 1}={value:.6g}"
                 for i, value in enumerate(self.profile.emg_bracing)
-            )
+            ) + self.grasp_result_text(self.profile.bracing_grasp_force_N)
         elif key.startswith("left_"):
             level = key.split("_")[1]
             mean_force = average_force(samples, -1)
@@ -473,6 +501,10 @@ class CalibrationApp(QWidget):
                 else "--"
             )
         )
+        if sample.get("hasFsr", False):
+            self.grasp_label.setText(f"Grasp: {float(sample.get('graspForceN', 0.0)):.3f} N")
+        else:
+            self.grasp_label.setText("Grasp: --")
         self.result_label.setText(f"Result: {self.result_text or '--'}")
         self.debug_label.setText(
             f"TCP: {'connected' if self.tcp.connected else 'disconnected'} | "

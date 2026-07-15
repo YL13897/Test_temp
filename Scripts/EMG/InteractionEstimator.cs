@@ -44,7 +44,6 @@ namespace CORC.Demo
 
         [Header("Debug CSV")]
         [SerializeField] private bool logDebugCsv = false;
-        [SerializeField] private float debugCsvHz = 20f;
         [SerializeField] private string debugCsvDir = @"D:\yixianglin\Desktop\PHRI_Data";
 
         public float ForceProxy { get; private set; }
@@ -75,7 +74,9 @@ namespace CORC.Demo
         private readonly int[] map = new int[6];
         private readonly float[] norm = new float[6];
         private StreamWriter debugWriter;
-        private float nextDebugT = 0f;
+        private string debugCsvSessionFilePath;
+        private const int DebugFlushInterval = 200;
+        private int debugRowsSinceFlush = 0;
         private float lastP = 0f;
         private float lastN = 0f;
         private float lastEmgForceRaw = 0f;
@@ -115,7 +116,6 @@ namespace CORC.Demo
             finally
             {
                 UpdateForceCmp();
-                WriteDebugCsv();
             }
         }
 
@@ -138,7 +138,6 @@ namespace CORC.Demo
                 for (int i = 0; i < weights.Length; i++)
                     weights[i] = w[i];
                 hasMethodACalibration = true;
-                loggedDefaultWeights = false;
                 ClearSpi();
             }
             else if (w != null && w.Length == count)
@@ -152,7 +151,6 @@ namespace CORC.Demo
                         weights[i] = 0f;
                 }
                 hasMethodACalibration = true;
-                loggedDefaultWeights = false;
                 ClearSpi();
             }
 
@@ -173,7 +171,6 @@ namespace CORC.Demo
         {
             if (forceSource == ForceSource.ForceSensor)
             {
-                loggedDefaultWeights = false;
                 if (bridge.TryGetInteractionForceX(out float fx))
                 {
                     ForceProxy = fx;
@@ -288,7 +285,6 @@ namespace CORC.Demo
 
             if (spiSource == SpiSource.PairCci)
             {
-                loggedDefaultWeights = false;
                 float spi = 0f;
                 int count = 0;
                 AddPair(ref spi, ref count, emg, map, 0, 1);
@@ -507,7 +503,7 @@ namespace CORC.Demo
             forceCmpText.text = $"ForceCmp: EMG {emgText} | Sensor {sensorText}";
         }
 
-        private void WriteDebugCsv()
+        public void WriteDebugCsv(double globalT)
         {
             if (!logDebugCsv || bridge == null || !bridge.RecordingEnabled)
             {
@@ -517,17 +513,20 @@ namespace CORC.Demo
             if (!bridge.IsTrialLoggingActive)
                 return;
 
-            float interval = debugCsvHz > 0f ? 1f / debugCsvHz : 0f;
-            if (interval > 0f && Time.time < nextDebugT)
-                return;
-            nextDebugT = Time.time + interval;
-
             if (debugWriter == null)
             {
-                Directory.CreateDirectory(debugCsvDir);
-                string path = Path.Combine(debugCsvDir, $"InteractionEstimatorDebug_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
-                debugWriter = new StreamWriter(path, false, Encoding.ASCII);
-                debugWriter.WriteLine("unity_time,u1,u2,u3,u4,u5,u6,p,n,spi,force_emg_proxy,force_sensor_x,k,emg_score");
+                if (string.IsNullOrEmpty(debugCsvSessionFilePath))
+                {
+                    Directory.CreateDirectory(debugCsvDir);
+                    debugCsvSessionFilePath = Path.Combine(debugCsvDir, $"InteractionRecord_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+                }
+
+                string path = debugCsvSessionFilePath;
+                bool append = File.Exists(path) && new FileInfo(path).Length > 0;
+                debugWriter = new StreamWriter(path, append, Encoding.ASCII);
+                debugRowsSinceFlush = 0;
+                if (!append)
+                    debugWriter.WriteLine("global_t,u1,u2,u3,u4,u5,u6,p,n,spi,force_emg_proxy,force_sensor_x,k,emg_score");
             }
 
             float sensorFx = 0f;
@@ -536,14 +535,21 @@ namespace CORC.Demo
             string sensorText = hasSensor ? sensorFx.ToString("F6", CultureInfo.InvariantCulture) : "";
             debugWriter.WriteLine(string.Format(
                 CultureInfo.InvariantCulture,
-                "{0:F4},{1:F6},{2:F6},{3:F6},{4:F6},{5:F6},{6:F6},{7:F6},{8:F6},{9:F6},{10},{11},{12:F6},{13:F6}",
-                Time.time,
+                "{0:F6},{1:F6},{2:F6},{3:F6},{4:F6},{5:F6},{6:F6},{7:F6},{8:F6},{9:F6},{10},{11},{12:F6},{13:F6}",
+                globalT,
                 norm[0], norm[1], norm[2], norm[3], norm[4], norm[5],
                 lastP, lastN, Spi, proxyText, sensorText,
                 StiffnessCmd, EmgScore));
+            debugRowsSinceFlush++;
+
+            if (debugRowsSinceFlush >= DebugFlushInterval)
+            {
+                debugWriter.Flush();
+                debugRowsSinceFlush = 0;
+            }
         }
 
-        private void CloseDebugCsv()
+        public void CloseDebugCsv()
         {
             if (debugWriter == null)
                 return;
@@ -551,6 +557,7 @@ namespace CORC.Demo
             try { debugWriter.Flush(); } catch { }
             try { debugWriter.Dispose(); } catch { }
             debugWriter = null;
+            debugRowsSinceFlush = 0;
         }
 
         void OnDestroy()
