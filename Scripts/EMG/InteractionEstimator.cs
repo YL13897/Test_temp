@@ -526,20 +526,23 @@ namespace CORC.Demo
                 debugWriter = new StreamWriter(path, append, Encoding.ASCII);
                 debugRowsSinceFlush = 0;
                 if (!append)
-                    debugWriter.WriteLine("global_t,u1,u2,u3,u4,u5,u6,p,n,spi,force_emg_proxy,force_sensor_x,k,emg_score");
+                    debugWriter.WriteLine("global_t,u1,u2,u3,u4,u5,u6,p,n,spi,force_emg_proxy,force_sensor_x,k,emg_score,fsr_voltage,grasp_force_N");
             }
 
             float sensorFx = 0f;
             bool hasSensor = bridge != null && bridge.TryGetInteractionForceX(out sensorFx);
+            bool hasFsr = bridge.TryGetGraspForceSample(out float fsrVoltage, out float graspForce);
             string proxyText = hasMethodACalibration ? (bias + lastEmgForceRaw).ToString("F6", CultureInfo.InvariantCulture) : "";
             string sensorText = hasSensor ? sensorFx.ToString("F6", CultureInfo.InvariantCulture) : "";
+            string fsrVoltageText = hasFsr ? fsrVoltage.ToString("F4", CultureInfo.InvariantCulture) : "";
+            string graspForceText = hasFsr ? graspForce.ToString("F3", CultureInfo.InvariantCulture) : "";
             debugWriter.WriteLine(string.Format(
                 CultureInfo.InvariantCulture,
-                "{0:F6},{1:F6},{2:F6},{3:F6},{4:F6},{5:F6},{6:F6},{7:F6},{8:F6},{9:F6},{10},{11},{12:F6},{13:F6}",
+                "{0:F6},{1:F6},{2:F6},{3:F6},{4:F6},{5:F6},{6:F6},{7:F6},{8:F6},{9:F6},{10},{11},{12:F6},{13:F6},{14},{15}",
                 globalT,
                 norm[0], norm[1], norm[2], norm[3], norm[4], norm[5],
                 lastP, lastN, Spi, proxyText, sensorText,
-                StiffnessCmd, EmgScore));
+                StiffnessCmd, EmgScore, fsrVoltageText, graspForceText));
             debugRowsSinceFlush++;
 
             if (debugRowsSinceFlush >= DebugFlushInterval)

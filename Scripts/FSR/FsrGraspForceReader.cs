@@ -1,43 +1,29 @@
 using System;
 using System.Globalization;
-using System.Runtime.InteropServices;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using UnityEngine;
 
 namespace CORC.Demo
 {
+    // Receives grasp force data from the external Python FSR bridge via UDP.
     public sealed class FsrGraspForceReader : MonoBehaviour
     {
-        [Header("Serial Input")]
-        [SerializeField] private string portName = "COM8";
-        [SerializeField] private int baudRate = 9600;
-        [SerializeField] private float staleAfterSeconds = 0.5f;
-
-        [Header("Calibration")]
-        [SerializeField] private float calibrationA = 1.1204106f;
-        [SerializeField] private float calibrationB = 28.447392f;
-        [SerializeField] private float vcc = 5f;
-        [SerializeField] private float fixedResistorOhms = 33000f;
-
-        
-        private string status = "Disabled";
-        private int receivedPackets = 0;
-        private int rejectedPackets = 0;
-
-        private const int ReadSleepMs = 100; // ms
-        private const int ReconnectMs = 5000; // ms
-        private static readonly IntPtr InvalidHandle = new IntPtr(-1);
+        [Header("UDP Input")]
+        [SerializeField] private int udpPort = 50110;
 
         private readonly object dataLock = new object();
-        private Thread readThread;
-        private IntPtr serialHandle = InvalidHandle;
+        private Thread receiveThread;
+        private UdpClient udpClient;
         private volatile bool running;
-        private volatile bool retryEnabled = true;
         private bool hasSample;
         private float voltage;
         private float forceN;
-        private DateTime lastSampleUtc;
+        private int receivedPackets;
+        private int rejectedPackets;
+        private string status = "Disabled";
 
         public string Status
         {
@@ -56,35 +42,26 @@ namespace CORC.Demo
                 StopReader();
         }
 
-        public void SetRetryEnabled(bool enabled)
-        {
-            retryEnabled = enabled;
-        }
-
         public void StartReader()
         {
-            if (running || string.IsNullOrWhiteSpace(portName))
+            if (running)
                 return;
 
             running = true;
-            SetStatus($"Opening {portName}");
-            readThread = new Thread(ReadLoop)
-            {
-                IsBackground = true,
-                Name = "FSR Grasp Force Reader"
-            };
-            readThread.Start();
+            ClearSample();
+            StartUdp();
         }
 
         public void StopReader()
         {
             running = false;
-            CloseSerial();
+            try { udpClient?.Close(); } catch { }
+            udpClient = null;
 
-            if (readThread != null && readThread.IsAlive)
-                readThread.Join(200);
+            if (receiveThread != null && receiveThread.IsAlive)
+                receiveThread.Join(300);
+            receiveThread = null;
 
-            readThread = null;
             ClearSample();
             SetStatus("Disabled");
         }
@@ -94,7 +71,7 @@ namespace CORC.Demo
             force = 0f;
             lock (dataLock)
             {
-                if (!IsFreshSample())
+                if (!hasSample)
                     return false;
 
                 force = forceN;
@@ -106,10 +83,9 @@ namespace CORC.Demo
         {
             fsrVoltage = 0f;
             fsrForceN = 0f;
-
             lock (dataLock)
             {
-                if (!IsFreshSample())
+                if (!hasSample)
                     return false;
 
                 fsrVoltage = voltage;
@@ -118,182 +94,103 @@ namespace CORC.Demo
             }
         }
 
-        private bool IsFreshSample()
+        private void StartUdp()
         {
-            return hasSample && (DateTime.UtcNow - lastSampleUtc).TotalSeconds <= staleAfterSeconds;
+            try
+            {
+                udpClient = new UdpClient(new IPEndPoint(IPAddress.Loopback, Mathf.Max(1, udpPort)));
+                receiveThread = new Thread(ReceiveLoop)
+                {
+                    IsBackground = true,
+                    Name = "FSR UDP Receiver"
+                };
+                receiveThread.Start();
+                SetStatus($"UDP listening {udpPort}");
+            }
+            catch (Exception ex)
+            {
+                running = false;
+                SetStatus($"UDP open failed: {ex.Message}");
+            }
         }
 
-        private void ReadLoop()
+        private void ReceiveLoop()
         {
-            byte[] buffer = new byte[128];
-            StringBuilder line = new StringBuilder(128);
-
+            IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
             while (running)
             {
-                if (!retryEnabled)
+                try
                 {
-                    Thread.Sleep(ReadSleepMs);
-                    continue;
+                    byte[] bytes = udpClient.Receive(ref remote);
+                    ProcessPacket(Encoding.ASCII.GetString(bytes));
                 }
-
-                IntPtr handle = OpenSerial();
-                if (handle == InvalidHandle)
+                catch (ObjectDisposedException)
                 {
-                    ClearSample();
-                    SetStatus($"Open {portName} failed");
-                    Thread.Sleep(ReconnectMs);
-                    continue;
+                    break;
                 }
-
-                serialHandle = handle;
-                SetStatus($"Listening {portName}");
-
-                while (running)
+                catch (SocketException ex)
                 {
-                    if (!ReadFile(handle, buffer, (uint)buffer.Length, out uint bytesRead, IntPtr.Zero))
-                    {
-                        ClearSample();
-                        SetStatus($"Read {portName} failed");
-                        break;
-                    }
-
-                    if (bytesRead == 0)
-                    {
-                        Thread.Sleep(ReadSleepMs);
-                        continue;
-                    }
-
-                    for (int i = 0; i < bytesRead; i++)
-                        AppendByte(line, buffer[i]);
+                    if (running)
+                        SetStatus($"UDP read failed: {ex.Message}");
+                    break;
                 }
-
-                CloseSerial();
-                while (running && !retryEnabled)
-                    Thread.Sleep(ReadSleepMs);
-                if (running)
-                    Thread.Sleep(ReconnectMs);
             }
         }
 
-        private IntPtr OpenSerial()
+        private void ProcessPacket(string text)
         {
-            IntPtr handle = CreateFile(
-                @"\\.\" + portName.Trim(),
-                GenericReadWrite,
-                0,
-                IntPtr.Zero,
-                OpenExisting,
-                0,
-                IntPtr.Zero);
-
-            if (handle == InvalidHandle || handle == IntPtr.Zero)
-                return InvalidHandle;
-
-            Dcb dcb = new Dcb();
-            dcb.DCBlength = (uint)Marshal.SizeOf(typeof(Dcb));
-            if (!GetCommState(handle, ref dcb))
+            if (TryParseStatus(text, out string appStatus))
             {
-                CloseHandle(handle);
-                return InvalidHandle;
-            }
-
-            dcb.BaudRate = (uint)Math.Max(1, baudRate);
-            dcb.ByteSize = 8;
-            dcb.Parity = 0;
-            dcb.StopBits = 0;
-            dcb.Flags = 1;
-
-            if (!SetCommState(handle, ref dcb))
-            {
-                CloseHandle(handle);
-                return InvalidHandle;
-            }
-
-            CommTimeouts timeouts = new CommTimeouts
-            {
-                ReadIntervalTimeout = 20,
-                ReadTotalTimeoutMultiplier = 0,
-                ReadTotalTimeoutConstant = 20,
-                WriteTotalTimeoutMultiplier = 0,
-                WriteTotalTimeoutConstant = 0
-            };
-            SetCommTimeouts(handle, ref timeouts);
-            PurgeComm(handle, PurgeRxClear);
-            return handle;
-        }
-
-        private void CloseSerial()
-        {
-            IntPtr handle = serialHandle;
-            serialHandle = InvalidHandle;
-            if (handle != InvalidHandle)
-                CloseHandle(handle);
-        }
-
-        private void AppendByte(StringBuilder line, byte value)
-        {
-            char c = (char)value;
-            if (c == '\n' || c == '\r')
-            {
-                if (line.Length > 0)
-                {
-                    ProcessLine(line.ToString());
-                    line.Length = 0;
-                }
+                SetStatus(appStatus);
                 return;
             }
 
-            if (line.Length < 256)
-                line.Append(c);
-            else
-                line.Length = 0;
-        }
-
-        private void ProcessLine(string line)
-        {
-            if (TryParseRaw(line, out float fsrRaw))
+            if (TryParsePacket(text, out float fsrVoltage, out float fsrForce))
             {
                 lock (dataLock)
+                {
+                    voltage = fsrVoltage;
+                    forceN = fsrForce;
+                    hasSample = true;
                     receivedPackets++;
-                UpdateSample(fsrRaw);
+                    status = $"OK udp={receivedPackets} V={fsrVoltage:0.000} F={fsrForce:0.00}N";
+                }
                 return;
             }
 
             lock (dataLock)
             {
                 rejectedPackets++;
-                status = $"Rejected #{rejectedPackets}: {line.Trim()}";
+                status = $"UDP rejected #{rejectedPackets}";
             }
         }
 
-        private bool TryParseRaw(string line, out float fsrRaw)
+        private bool TryParseStatus(string text, out string appStatus)
         {
-            fsrRaw = 0f;
-            if (string.IsNullOrWhiteSpace(line))
+            appStatus = "";
+            if (string.IsNullOrWhiteSpace(text))
                 return false;
 
-            string text = line.Trim();
-            int comma = text.IndexOf(',');
-            string firstValue = comma >= 0 ? text.Substring(0, comma) : text;
-            return float.TryParse(firstValue, NumberStyles.Float, CultureInfo.InvariantCulture, out fsrRaw);
+            string value = text.Trim();
+            if (!value.StartsWith("STATUS,", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            appStatus = value.Length > 7 ? value.Substring(7) : "External app status";
+            return true;
         }
 
-        private void UpdateSample(float fsrRaw)
+        private bool TryParsePacket(string text, out float fsrVoltage, out float fsrForce)
         {
-            float fsrVoltage = fsrRaw * vcc / 1023f;
-            float fsrConductance = VoltageToConductance(fsrVoltage);
-            float fsrForce = calibrationA > 1e-6f
-                ? Math.Max(0f, (fsrConductance - calibrationB) / calibrationA)
-                : 0f;
+            fsrVoltage = 0f;
+            fsrForce = 0f;
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
 
-            lock (dataLock)
-            {
-                voltage = fsrVoltage;
-                forceN = fsrForce;
-                lastSampleUtc = DateTime.UtcNow;
-                hasSample = true;
-                status = $"OK packets={receivedPackets} V={fsrVoltage:0.000} F={fsrForce:0.00}N";
-            }
+            string[] parts = text.Trim().Split(',');
+            int offset = parts.Length > 0 && parts[0].Trim().Equals("FSR", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            return parts.Length >= offset + 2
+                && float.TryParse(parts[offset], NumberStyles.Float, CultureInfo.InvariantCulture, out fsrVoltage)
+                && float.TryParse(parts[offset + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out fsrForce);
         }
 
         private void ClearSample()
@@ -306,15 +203,6 @@ namespace CORC.Demo
         {
             lock (dataLock)
                 status = value;
-        }
-
-        private float VoltageToConductance(float fsrVoltage)
-        {
-            if (fsrVoltage <= 0.01f || fsrVoltage >= vcc - 0.01f)
-                return 0f;
-
-            float resistance = fixedResistorOhms * (vcc - fsrVoltage) / fsrVoltage;
-            return resistance > 1e-6f ? 1000000f / resistance : 0f;
         }
 
         private void OnDisable()
@@ -331,60 +219,5 @@ namespace CORC.Demo
         {
             StopReader();
         }
-
-        private const uint GenericReadWrite = 0xC0000000;
-        private const uint OpenExisting = 3;
-        private const uint PurgeRxClear = 0x0008;
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Dcb
-        {
-            public uint DCBlength;
-            public uint BaudRate;
-            public uint Flags;
-            public ushort wReserved;
-            public ushort XonLim;
-            public ushort XoffLim;
-            public byte ByteSize;
-            public byte Parity;
-            public byte StopBits;
-            public byte XonChar;
-            public byte XoffChar;
-            public byte ErrorChar;
-            public byte EofChar;
-            public byte EvtChar;
-            public ushort wReserved1;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct CommTimeouts
-        {
-            public uint ReadIntervalTimeout;
-            public uint ReadTotalTimeoutMultiplier;
-            public uint ReadTotalTimeoutConstant;
-            public uint WriteTotalTimeoutMultiplier;
-            public uint WriteTotalTimeoutConstant;
-        }
-
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-        private static extern IntPtr CreateFile(string fileName, uint desiredAccess, uint shareMode, IntPtr securityAttributes, uint creationDisposition, uint flagsAndAttributes, IntPtr templateFile);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool ReadFile(IntPtr file, byte[] buffer, uint bytesToRead, out uint bytesRead, IntPtr overlapped);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool CloseHandle(IntPtr handle);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool GetCommState(IntPtr file, ref Dcb dcb);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool SetCommState(IntPtr file, ref Dcb dcb);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool SetCommTimeouts(IntPtr file, ref CommTimeouts timeouts);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool PurgeComm(IntPtr file, uint flags);
     }
 }

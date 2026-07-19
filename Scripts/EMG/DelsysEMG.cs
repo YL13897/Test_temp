@@ -19,6 +19,9 @@ using Debug = UnityEngine.Debug;
 
 public class DelsysEMG
 {
+    private const int FullChannelCount = 16;
+    private const int MaxProcessChannels = 6;
+
     //example of creating a list of sensor types to keep track of various TCP streams...
     enum SensorTypes { SensorTrigno, SensorTrignoImu, SensorTrignoMiniHead, NoSensor };
     private List<SensorTypes> _sensors = new List<SensorTypes>();
@@ -58,11 +61,15 @@ public class DelsysEMG
 
     //The following are storage for acquired data
     // private float[] tempEmgDataList = new float[16]; // Legacy raw cache, kept commented for reference.
-    private float[] tempSelectedEmgDataList = new float[16];
-    private float[] tempEnvelopeDataList = new float[16];
-    private float[] processingInputFrame = new float[16];
-    private float[] selectedOutputFrame = new float[16];
-    private float[] scoreEnvelopeFrame = new float[16];
+    private float[] tempSelectedEmgDataList = new float[FullChannelCount];
+    private float[] tempEnvelopeDataList = new float[FullChannelCount];
+    private float[] selectedOutputFrame = new float[FullChannelCount];
+    private float[] scoreEnvelopeFrame = new float[FullChannelCount];
+    private float[] processingInputFrame = new float[MaxProcessChannels];
+    private float[] processingOutputFrame = new float[MaxProcessChannels];
+    private float[] processingEnvelopeFrame = new float[MaxProcessChannels];
+    private int[] processChannels = new int[MaxProcessChannels];
+    private int processChannelCount = 0;
     private readonly object dataLock = new object();
     private readonly object recordingLock = new object();
     private const int RecordingQueueLimit = 5000;
@@ -75,7 +82,6 @@ public class DelsysEMG
     private double acquisitionTime = 0.0;
     private double scoreEnvelopeTime = 0.0;
     private long scoreEnvelopeSeq = 0;
-    private double lastFrameTime = -1.0;
 
     //Sensor status
     private volatile bool connected = false; //true if connected to server
@@ -110,15 +116,21 @@ public class DelsysEMG
         {
             tempSelectedEmgDataList[i] = 0f;
             tempEnvelopeDataList[i] = 0f;
-            processingInputFrame[i] = 0f;
             selectedOutputFrame[i] = 0f;
             scoreEnvelopeFrame[i] = 0f;
         }
+        for (int i = 0; i < MaxProcessChannels; i++)
+        {
+            processingInputFrame[i] = 0f;
+            processingOutputFrame[i] = 0f;
+            processingEnvelopeFrame[i] = 0f;
+            processChannels[i] = 0;
+        }
+        processChannelCount = 0;
         downSampleAccumulator = 0.0;
         acquisitionTime = 0.0;
         scoreEnvelopeTime = 0.0;
         scoreEnvelopeSeq = 0;
-        lastFrameTime = -1.0;
 
         recording = false;
         running = false;
@@ -279,7 +291,7 @@ public class DelsysEMG
         emgFilter = filter;
         scoreDownsampleHz = Mathf.Max(1f, scoreHz);
         if (emgFilter != null)
-            emgFilter.Configure(tempSelectedEmgDataList.Length, samplingInterval > 0f ? 1f / samplingInterval : 1111.1111f);
+            ConfigureFilter();
         else
             Debug.LogWarning("Delsys-> EMGFilter missing; recording raw EMG.");
         sensorList.Clear();
@@ -301,6 +313,68 @@ public class DelsysEMG
     public void SetDebugSink(IEmgDebugSink sink)
     {
         debugSink = sink;
+    }
+
+    public void SetProcessChannels(int[] channels)
+    {
+        if (running)
+        {
+            Debug.LogWarning("Delsys-> Cannot change EMG processing channels while acquisition is running.");
+            return;
+        }
+
+        processChannelCount = 0;
+        if (channels != null)
+        {
+            for (int i = 0; i < channels.Length && processChannelCount < MaxProcessChannels; i++)
+            {
+                int channel = channels[i];
+                if (channel < 1 || channel > FullChannelCount) continue;
+                if (activeSensorChannels.Count > 0 && !activeSensorChannels.Contains(channel)) continue;
+                if (Array.IndexOf(processChannels, channel, 0, processChannelCount) >= 0) continue;
+                processChannels[processChannelCount++] = channel;
+            }
+        }
+
+        if (processChannelCount == 0)
+        {
+            for (int i = 0; i < activeSensorChannels.Count && processChannelCount < MaxProcessChannels; i++)
+                processChannels[processChannelCount++] = activeSensorChannels[i];
+        }
+
+        for (int i = processChannelCount; i < MaxProcessChannels; i++)
+            processChannels[i] = 0;
+
+        ConfigureFilter();
+        if (processChannelCount > 0)
+            Debug.Log($"Delsys-> Processing EMG channels: {string.Join(", ", GetProcessChannels())}");
+    }
+
+    public int GetFilterChannelIndex(int physicalChannel)
+    {
+        for (int i = 0; i < processChannelCount; i++)
+        {
+            if (processChannels[i] == physicalChannel)
+                return i;
+        }
+        return -1;
+    }
+
+    private int[] GetProcessChannels()
+    {
+        int[] channels = new int[processChannelCount];
+        for (int i = 0; i < processChannelCount; i++)
+            channels[i] = processChannels[i];
+        return channels;
+    }
+
+    private void ConfigureFilter()
+    {
+        if (emgFilter == null)
+            return;
+
+        int channels = Mathf.Max(1, processChannelCount);
+        emgFilter.Configure(channels, samplingInterval > 0f ? 1f / samplingInterval : 1111.1111f);
     }
 
 
@@ -421,6 +495,9 @@ public class DelsysEMG
             return;
         }
 
+        if (processChannelCount == 0)
+            SetProcessChannels(null);
+
         
         try
         {
@@ -444,7 +521,12 @@ public class DelsysEMG
         //check response
         if (response.StartsWith("OK"))
         {
-            emgThread = new Thread(ImuEmgThreadRoutine) { IsBackground = true };
+            emgThread = new Thread(ImuEmgThreadRoutine) 
+            { 
+                IsBackground = true,
+                Priority = System.Threading.ThreadPriority.AboveNormal,
+                Name = "EMG TCP Receiver"
+            };
             running = true;
             emgThread.Start();
             Debug.Log("Delsys-> Server OK to start acquisition!");
@@ -679,30 +761,43 @@ public class DelsysEMG
        emgStream.ReadTimeout = dataTimeoutMs;
 
         BinaryReader reader = new BinaryReader(emgStream);
-        float[] frame = new float[16];
+        float[] frame = new float[FullChannelCount];
         while (running)
         {
             try
             {
                 // Stream the data;
-                for (int sn = 0; sn < 16; ++sn)
+                for (int sn = 0; sn < FullChannelCount; ++sn)
                     frame[sn] = reader.ReadSingle();
-                lastFrameTime = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+
+                for (int sn = 0; sn < FullChannelCount; ++sn)
+                {
+                    selectedOutputFrame[sn] = 0f;
+                    scoreEnvelopeFrame[sn] = 0f;
+                }
 
                 if (emgFilter != null)
                 {
-                    for (int sn = 0; sn < 16; ++sn)
-                        processingInputFrame[sn] = frame[sn];
+                    for (int i = 0; i < processChannelCount; i++)
+                        processingInputFrame[i] = frame[processChannels[i] - 1];
 
-                    emgFilter.ProcessFrame(processingInputFrame, signalView, selectedOutputFrame,
-                        scoreEnvelopeFrame, debugSink, acquisitionTime);
+                    emgFilter.ProcessFrame(processingInputFrame, signalView, processingOutputFrame,
+                        processingEnvelopeFrame, debugSink, acquisitionTime);
+
+                    for (int i = 0; i < processChannelCount; i++)
+                    {
+                        int channelIndex = processChannels[i] - 1;
+                        selectedOutputFrame[channelIndex] = processingOutputFrame[i];
+                        scoreEnvelopeFrame[channelIndex] = processingEnvelopeFrame[i];
+                    }
                 }
                 else
                 {
-                    for (int sn = 0; sn < 16; ++sn)
+                    for (int i = 0; i < processChannelCount; i++)
                     {
-                        selectedOutputFrame[sn] = frame[sn];
-                        scoreEnvelopeFrame[sn] = Mathf.Abs(frame[sn]);
+                        int channelIndex = processChannels[i] - 1;
+                        selectedOutputFrame[channelIndex] = frame[channelIndex];
+                        scoreEnvelopeFrame[channelIndex] = Mathf.Abs(frame[channelIndex]);
                     }
                 }
 
@@ -715,7 +810,7 @@ public class DelsysEMG
 
                 lock (dataLock)
                 {
-                    for (int sn = 0; sn < 16; ++sn)
+                    for (int sn = 0; sn < FullChannelCount; ++sn)
                     {
                         tempSelectedEmgDataList[sn] = selectedOutputFrame[sn]; 
                         if (envelopeScorePublish)
@@ -733,10 +828,6 @@ public class DelsysEMG
             }
             catch (IOException e)
             {
-                double now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
-                double stallSec = lastFrameTime > 0.0 ? now - lastFrameTime : -1.0;
-                if (stallSec >= 0.0)
-                    Debug.LogWarning($"Delsys-> EMG stream stalled for {stallSec:F2}s before IOException.");
                 if (running)
                     MarkDisconnected("IOException during EMG stream read", e);
                 break;

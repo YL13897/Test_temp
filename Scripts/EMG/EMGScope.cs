@@ -70,7 +70,14 @@ public class EMGScope : MonoBehaviour
         {
             EMGScopeUIRenderer renderer = scopeRenderers[i];
             int sensorId = activeChannels[i];
-            int filterChannel = Mathf.Clamp(sensorId - 1, 0, emgFilter.ChannelCount - 1);
+            int filterChannel = emgBridge != null
+                ? emgBridge.GetEmgFilterChannelIndex(sensorId)
+                : Mathf.Clamp(sensorId - 1, 0, emgFilter.ChannelCount - 1);
+            if (filterChannel < 0)
+            {
+                renderer.Clear();
+                continue;
+            }
 
             float[] buffer = displayBuffers[i];
             int count = emgFilter.CopyHistory(GetSignalView(), filterChannel, buffer);

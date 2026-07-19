@@ -230,22 +230,18 @@ namespace CORC.Demo
 
         private void ApplyFsrRuntimeSettings()
         {
-            if (fsrReader != null)
-                fsrReader.SetRetryEnabled(!blockActive);
+            bool enableFsrNow = fsrEnable;
 
-            if (fsrStateApplied && fsrEnable == lastFsrEnable && fsrReader == lastFsrReader)
+            if (fsrStateApplied && enableFsrNow == lastFsrEnable && fsrReader == lastFsrReader)
                 return;
 
             if (lastFsrReader != null && lastFsrReader != fsrReader)
-            {
-                lastFsrReader.SetRetryEnabled(true);
                 lastFsrReader.SetReaderEnabled(false);
-            }
 
             if (fsrReader != null)
-                fsrReader.SetReaderEnabled(fsrEnable);
+                fsrReader.SetReaderEnabled(enableFsrNow);
 
-            lastFsrEnable = fsrEnable;
+            lastFsrEnable = enableFsrNow;
             lastFsrReader = fsrReader;
             fsrStateApplied = true;
         }
@@ -256,12 +252,14 @@ namespace CORC.Demo
             if (!delsysEMG.Connect())
                 return false;
 
+            if (!HasValidEmgMapping())
+                ApplyDefaultEmgMapping();
+
+            delsysEMG.SetProcessChannels(GetConfiguredEmgChannels());
             delsysEMG.StartAcquisition();
             if (!delsysEMG.IsRunning())
                 return false;
 
-            if (!HasValidEmgMapping())
-                ApplyDefaultEmgMapping();
             Debug.LogWarning("Delsys EMG connected and acquisition started.");
             return true;
         }
@@ -512,6 +510,7 @@ namespace CORC.Demo
         public string ActiveEmgChannelsText => activeEmgChannelsText;
         public int[] GetActiveEmgChannels() => delsysEMG.GetChannelsActiveSensor();
         public int[] GetConfiguredEmgChannels() => new[] { cc11Channel, cc12Channel, cc21Channel, cc22Channel, cc31Channel, cc32Channel };
+        public int GetEmgFilterChannelIndex(int physicalChannel) => delsysEMG.GetFilterChannelIndex(physicalChannel);
 
         public bool HasValidEmgMapping()
         {
@@ -589,7 +588,7 @@ namespace CORC.Demo
                 scoreLogRowsSinceFlush = 0;
                 if (!append)
                 {
-                    string header = "global_t,x_rover,x_leader,handle_fx,track_score,force_score,emg_score,total_score,block_index,section_index,fsr_voltage,grasp_force_N";
+                    string header = "global_t,x_rover,x_leader,handle_fx,track_score,force_score,emg_score,total_score,block_index,section_index";
                     scoreLogWriter.WriteLine(header);
                     scoreLogWriter.Flush();
                 }
@@ -813,6 +812,9 @@ namespace CORC.Demo
 
         void Awake()
         {
+            Application.runInBackground = true;
+            // Application.targetFrameRate = 50;
+
             emgIsRecording = false;
 
             if (rover == null)
@@ -859,13 +861,14 @@ namespace CORC.Demo
 
         private void WriteScoreLogRow()
         {
+            double globalT = GetGlobalT();
+
             if (!scoreLogIsRecording || scoreLogWriter == null || ScoreManager.Instance == null) return;
 
             float xRover = roverTransform != null ? roverTransform.position.x : 0f;
             float xLeader = leader != null ? leader.transform.position.x : 0f;
             int blockIndex = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentBlockNumber : 0;
             int sectionIndex = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentSectionNumber : 0;
-            double globalT = GetGlobalT();
 
             StringBuilder line = new StringBuilder(160);
             line.Append(globalT.ToString("F6")).Append(',')
@@ -878,24 +881,6 @@ namespace CORC.Demo
                 .Append(ScoreManager.Instance.SectionScore.ToString("F6")).Append(',')
                 .Append(blockIndex).Append(',')
                 .Append(sectionIndex);
-
-            if (fsrEnable && fsrReader != null)
-            {
-                if (TryGetGraspForceSample(out float fsrVoltage, out float graspForce))
-                {
-                    line.Append(',')
-                        .Append(fsrVoltage.ToString("F6")).Append(',')
-                        .Append(graspForce.ToString("F6"));
-                }
-                else
-                {
-                    line.Append(",,");
-                }
-            }
-            else
-            {
-                line.Append(",,");
-            }
 
             scoreLogWriter.WriteLine(line.ToString());
             estimator?.WriteDebugCsv(globalT);

@@ -661,7 +661,8 @@ namespace CORC.Demo
             {
                 string cmd = (c.cmd ?? string.Empty).TrimEnd('\0');
                 var p = c.parameters ?? Array.Empty<double>();
-                Debug.Log($"[UI Received] {cmd} ({p.Length} params)");
+                if (cmd != "OK")
+                    Debug.Log($"[UI Received] {cmd} ({p.Length} params)");
 
                 if (cmd == "TRBG") // TRBG: block begin in Unity-side naming.
                 {
