@@ -91,7 +91,7 @@ namespace CORC.Demo
             if (confirmModeBtn1) confirmModeBtn1.interactable = true;
             if (startExperimentBtn)
                 startExperimentBtn.interactable = IsM2Mode
-                    ? bginReady && !pendingHriApply && !pendingCtrlApply && CanStartBlock
+                    ? bginReady && !pendingHriApply && !pendingCtrlApply && (CanStartBlock || (bridge != null && bridge.IsEmgHold))
                     : blockControl != null && (!blockControl.HasPreparedBlock || CanStartBlock) && !blockControl.IsRoundComplete;
             if (returnWaitStartBtn) returnWaitStartBtn.interactable = IsM2Mode && bginReady;
             if (toAButton) toAButton.interactable = IsM2Mode;
@@ -374,6 +374,15 @@ namespace CORC.Demo
                 return;
             }
 
+            if (bridge != null && bridge.IsEmgHold)
+            {
+                bool resumed = bridge.ResumeEmgHold();
+                SetCommandButtonsInteractable();
+                if (statusTxt)
+                    SetStatus(resumed ? Color.white : Color.yellow, resumed ? "EMG reconnected. Resumed current trial." : "EMG still disconnected.");
+                return;
+            }
+
             if (blockControl == null || !blockControl.CanStartPreparedBlock())
             {
                 if (statusTxt)
@@ -652,7 +661,9 @@ namespace CORC.Demo
             if (velTxt) velTxt.text = $"Velocity: [{dX[0]:F3}, {dX[1]:F3}]";
             if (frcTxt) frcTxt.text = $"Force: [{F[0]:F3}, {F[1]:F3}]";
 
-            if (calibrationManager != null && calibrationManager.IsCalibrationActive && statusTxt)
+            if (bridge != null && bridge.IsEmgHold && statusTxt)
+                SetStatus(Color.yellow, "EMG disconnected. Reconnecting...");
+            else if (calibrationManager != null && calibrationManager.IsCalibrationActive && statusTxt)
                 SetStatus(Color.white, calibrationManager.LastStatus);
 
             var cmds = proxy.DrainCmds();

@@ -143,6 +143,8 @@ namespace CORC.Demo
         private bool isDriving = false;
         private bool isPaused = false;
 
+        private bool emgHold = false; // Whether to hold the EMG score and stiffness estimation at their last values, used to hold up when EMG sensor disconnected during blocks.
+
         // private float nextFeedbackSendTime = 0.0f;
         private float nextVelDebugTime = 0.0f;
         private bool lastM2Connected = false; // Track M2 connection status to detect reconnects for auto-snapping
@@ -175,7 +177,6 @@ namespace CORC.Demo
         [Header("EMG Settings")]
         [SerializeField] private bool delsysEnable;
         [SerializeField] private bool emgReconnectFlag = false;
-        [SerializeField] private EmgRecordFormat emgRecordFormat = EmgRecordFormat.Csv;
         [SerializeField] private EMGFilter.EmgSignalView emgSignalMode = EMGFilter.EmgSignalView.Envelope;
         [SerializeField] private float emgScoreDownsampleHz = 100f;
         [SerializeField] private EMGFilter emgFilter;
@@ -289,11 +290,6 @@ namespace CORC.Demo
             return fullPath;
         }
 
-        private string GetEmgRecordExtension()
-        {
-            return emgRecordFormat == EmgRecordFormat.Csv ? ".csv" : ".h5";
-        }
-
         private string ConfigEMGFilePath()
         {
             if (!string.IsNullOrEmpty(emgSessionFilePath))
@@ -306,7 +302,7 @@ namespace CORC.Demo
                     overrideDir = Path.GetDirectoryName(overrideDir);
                 if (string.IsNullOrWhiteSpace(overrideDir))
                     overrideDir = Directory.GetCurrentDirectory();
-                emgSessionFilePath = BuildBlockScopedEmgPath(overrideDir, "EmgLogs", GetEmgRecordExtension());
+                emgSessionFilePath = BuildBlockScopedEmgPath(overrideDir, "EmgLogs", ".csv");
                 string resolvedDir = Path.GetDirectoryName(emgSessionFilePath);
                 if (!string.IsNullOrEmpty(resolvedDir))
                     Directory.CreateDirectory(resolvedDir);
@@ -315,7 +311,7 @@ namespace CORC.Demo
 
             string emgDir = @"D:\yixianglin\Desktop\PHRI_Data"; // Default directory for EMG data.
             Directory.CreateDirectory(emgDir);
-            emgSessionFilePath = BuildBlockScopedEmgPath(emgDir, "EmgLogs", GetEmgRecordExtension());
+            emgSessionFilePath = BuildBlockScopedEmgPath(emgDir, "EmgLogs", ".csv");
             return emgSessionFilePath;
         }
 
@@ -498,6 +494,7 @@ namespace CORC.Demo
         public bool AnyRecordingActive => emgIsRecording || scoreLogIsRecording || disturbanceLogIsRecording;
         public bool IsTrialLoggingActive => unityMode == UnityDriveMode.Mode2_M2 && blockActive &&
             ExperimentBlockControl.Instance != null && ExperimentBlockControl.Instance.HasActiveSection;
+        public bool IsEmgHold => emgHold;
         public EMGFilter.EmgSignalView EmgSignalMode => emgSignalMode;
         public float EmgSpi => estimator != null ? estimator.Spi : emgSpi;
         public float EmgEffortScore => estimator != null ? estimator.EmgScore : emgEffortScore;
@@ -560,7 +557,7 @@ namespace CORC.Demo
             string emgPath = ConfigEMGFilePath();
             sec = ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentSectionNumber : 0;
             double startT = GetGlobalT();
-            delsysEMG.StartRecording(emgPath, startT, sec, emgRecordFormat);
+            delsysEMG.StartRecording(emgPath, startT, sec);
             emgIsRecording = true;
             return true;
         }
@@ -932,6 +929,7 @@ namespace CORC.Demo
             if (unityMode == UnityDriveMode.Mode1_Keyboard)
             {   
                 blockActive = false;
+                emgHold = false;
                 enableKeyboardInMode1 = true;
                 isPaused = false;
                 isDriving = false;
@@ -943,6 +941,7 @@ namespace CORC.Demo
             else
             {
                 blockActive = false;
+                emgHold = false;
                 enableKeyboardInMode1 = false;
                 syncRefReady = false;
                 worldFollower?.ResetBias();
@@ -963,6 +962,7 @@ namespace CORC.Demo
         public void NotifyBlockBegin()
         {
             blockActive = true;
+            emgHold = false;
             if (unityMode == UnityDriveMode.Mode2_M2)
                 syncRefReady = false; 
             if (!isPaused) isDriving = true;
@@ -980,6 +980,7 @@ namespace CORC.Demo
             CloseAuxRecordingSessions();
 
             blockActive = false;
+            emgHold = false;
             syncRefReady = false;
             if (isDriving) isDriving = false;
             worldFollower?.ResetBias();
@@ -990,11 +991,53 @@ namespace CORC.Demo
 
         public void StopBlockMotionImmediate()
         {
+            emgHold = false;
             isDriving = false;
             ApplyRoverSteer(0f);
             rover?.Brake();
             leader?.Brake();
             if (ScoreManager.Instance != null) ScoreManager.Instance.SetScorePaused(true);
+        }
+
+        public bool HoldBlockForEmgDisconnect()
+        {
+            if (!blockActive || unityMode != UnityDriveMode.Mode2_M2 || !delsysEnable || IsEmgReady())
+                return false;
+
+            emgHold = true;
+            emgIsRecording = false;
+            recStarted = false;
+            isDriving = false;
+            ApplyRoverSteer(0f);
+            rover?.Brake();
+            leader?.Brake();
+            if (ScoreManager.Instance != null)
+                ScoreManager.Instance.SetScorePaused(true);
+            Debug.LogWarning("[EMG Guard] EMG disconnected. Auto movement stopped.");
+            return true;
+        }
+
+        public bool ResumeEmgHold()
+        {
+            if (!emgHold)
+                return false;
+            if (delsysEnable && !IsEmgReady())
+                return false;
+
+            bool hasSection = ExperimentBlockControl.Instance != null && ExperimentBlockControl.Instance.HasActiveSection;
+            if (blockActive && hasSection && recordingEnabled && !recStarted)
+            {
+                if (StartAuxRecordingManual())
+                    recStarted = true;
+            }
+
+            emgHold = false;
+            isPaused = false;
+            isDriving = blockActive;
+            if (ScoreManager.Instance != null)
+                ScoreManager.Instance.SetScorePaused(!blockActive);
+            Debug.Log("[EMG Guard] EMG reconnected. Auto movement resumed.");
+            return true;
         }
 
         // Reset the rover to its initial pose, and clear velocities. This can be called on block start or when needed.
@@ -1018,6 +1061,7 @@ namespace CORC.Demo
         public void SoftResetUnityStateKeepM2Connection()
         {
             blockActive = false;
+            emgHold = false;
             syncRefReady = false;
             hasSentDisturbanceState = false;
             lastDisturbanceState = false;
@@ -1057,6 +1101,7 @@ namespace CORC.Demo
         public void ResetForNextExperimentBlock()
         {
             blockActive = false;
+            emgHold = false;
             syncRefReady = false;
             hasSentDisturbanceState = false;
             lastDisturbanceState = false;
@@ -1298,7 +1343,24 @@ namespace CORC.Demo
             // if (rover != null && roverRigidbody == null)
             //     roverRigidbody = rover.GetComponent<Rigidbody>();
 
-            if (delsysEnable && emgReconnectFlag && !blockActive && !IsEmgReady() && Time.unscaledTime >= nextEmgReconnectTime)
+            bool emgReady = IsEmgReady(); // Check if EMG is connected and running
+            
+            // EMG is enabled but not ready, this could be due to EMG disconnection or stop.
+            if (delsysEnable && !emgReady)
+            {
+                if (emgIsRecording)
+                {
+                    emgIsRecording = false;
+                    recStarted = false;
+                }
+
+                if (unityMode == UnityDriveMode.Mode2_M2 && blockActive && !emgHold)
+                    HoldBlockForEmgDisconnect();
+            }
+
+            // Attempt to reconnect EMG if it's not ready and either we're in EMG hold or EMG reconnect is enabled and block is not active.
+            if (delsysEnable && !emgReady && Time.unscaledTime >= nextEmgReconnectTime &&
+                (emgHold || (emgReconnectFlag && !blockActive)))
                 TryConnectEmg();
 
             ApplyFsrRuntimeSettings();
@@ -1334,7 +1396,8 @@ namespace CORC.Demo
             bool hasSection = ExperimentBlockControl.Instance != null && ExperimentBlockControl.Instance.HasActiveSection;
             sec = hasSection && ExperimentBlockControl.Instance != null ? ExperimentBlockControl.Instance.CurrentSectionNumber : 0;
             delsysEMG.SetSec(sec);
-            if (unityMode == UnityDriveMode.Mode2_M2 && blockActive && !recStarted && hasSection)
+
+            if (unityMode == UnityDriveMode.Mode2_M2 && blockActive && !emgHold && !recStarted && hasSection)
             {
                 if (recordingEnabled)
                 {
@@ -1370,14 +1433,14 @@ namespace CORC.Demo
 
             rover.SetPreserveLateralVelocity(unityMode == UnityDriveMode.Mode2_M2 && ctrlModeCode == 2);
             rover.SetPaused(isPaused);
-            rover.SetDriving(isDriving && !isPaused);
+            rover.SetDriving(isDriving && !isPaused && !emgHold);
 
             leader.SetPreserveLateralVelocity(unityMode == UnityDriveMode.Mode2_M2);
             leader.SetPaused(isPaused);
-            leader.SetDriving(isDriving && !isPaused);
+            leader.SetDriving(isDriving && !isPaused && !emgHold);
 
             if (ScoreManager.Instance != null)
-                ScoreManager.Instance.SetScorePaused(isPaused || !blockActive);
+                ScoreManager.Instance.SetScorePaused(isPaused || !blockActive || emgHold);
 
             ApplyEmgRuntimeSettings();
             estimator?.Refresh();
@@ -1393,6 +1456,12 @@ namespace CORC.Demo
             if (unityMode == UnityDriveMode.Mode1_Keyboard) // Keyboard control mode
             {
                 HandleKeyboardModeFixedUpdate();
+                return;
+            }
+
+            else if (emgHold)
+            {
+                ApplyRoverSteer(0f);
                 return;
             }
 

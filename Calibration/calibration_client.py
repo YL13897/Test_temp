@@ -229,6 +229,11 @@ class CalibrationApp(QWidget):
         self.participant_box = QLineEdit("P01")
         right_layout.addWidget(self.participant_box)
 
+        right_layout.addWidget(QLabel("Calibration Repeat"))
+        self.repeat_box = QComboBox()
+        self.repeat_box.addItems(["1", "2", "3"])
+        right_layout.addWidget(self.repeat_box)
+
         base_buttons = [
             ("EMG Rest", lambda: self.start_step("emg_rest")),
             ("Left MVC", lambda: self.start_step("left_mvc")),
@@ -342,7 +347,16 @@ class CalibrationApp(QWidget):
 
     def finish_step(self, key, samples):
         raw_key = {"left_mvc": "left_100", "right_mvc": "right_100"}.get(key, key)
+        repeat = self.repeat_box.currentText()
+        repeats = self.profile.raw_repeats.setdefault(raw_key, {})
+        repeats[repeat] = samples
+        samples = [
+            sample
+            for repeat_samples in repeats.values()
+            for sample in repeat_samples
+        ]
         self.profile.raw[raw_key] = samples
+        n = len(repeats)
         if key == "emg_rest":
             self.profile.emg_rest = mean_emg(samples)
             (
@@ -408,7 +422,7 @@ class CalibrationApp(QWidget):
             self.profile.emg_ref = compute_emg_ref(self.profile)
 
         self.result_label.setText(f"Result: {self.result_text}")
-        self.append_log(self.result_text)
+        self.append_log(f"{self.result_text} | n={n}")
 
     def fit_stiffness(self):
         weights, force_bias, stiffness_scale, standby_k, fit_trials, fit_slots = (
@@ -456,6 +470,14 @@ class CalibrationApp(QWidget):
                     setattr(profile, key, value)
 
             self.profile = profile
+            self.profile.raw = {
+                key: [
+                    sample
+                    for repeat_samples in repeats.values()
+                    for sample in repeat_samples
+                ]
+                for key, repeats in self.profile.raw_repeats.items()
+            }
             self.participant_box.setText(profile.participant_id or Path(path).stem)
             self.result_text = (
                 f"Loaded {Path(path).name}; "

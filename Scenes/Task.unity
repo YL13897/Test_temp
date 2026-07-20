@@ -2591,18 +2591,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1b1f425fdeb58b042b301dde6f5aaa74, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CORC.Demo.FsrGraspForceReader
-  launchExternalApp: 1
-  externalAppPath: Test\Scripts\FSR\ExternalFsrBridge~\bin\Release\net8.0\FsrBridgeApp.exe
-  portMode: 1
-  bluetoothPort: COM8
-  wiredPort: COM14
-  baudRate: 9600
-  autoReconnect: 1
   udpPort: 50110
-  calibrationA: 1.1204106
-  calibrationB: 28.447392
-  vcc: 5
-  fixedResistorOhms: 33000
 --- !u!4 &468612452
 Transform:
   m_ObjectHideFlags: 0
@@ -2811,7 +2800,7 @@ MonoBehaviour:
   alwaysShowTrialScore: 0
   showTotalOnly: 1
   useTrackScore: 1
-  useStiffnessScore: 0
+  useStiffnessScore: 1
   useForceScore: 0
   sectionBar: {fileID: 789705627}
 --- !u!4 &507810785
@@ -2958,6 +2947,7 @@ MonoBehaviour:
   leftRfCount: 10
   rightLfCount: 10
   leader: {fileID: 1812959198}
+  bridge: {fileID: 507810793}
   sectionIndexText: {fileID: 1227398970}
   countdownText: {fileID: 1538615091}
   blockMessageText: {fileID: 269646975}
@@ -2985,7 +2975,6 @@ MonoBehaviour:
   roverRigidbody: {fileID: 481331123}
   fsrEnable: 1
   fsrReader: {fileID: 468612451}
-  fsrStartDelayAfterEmg: 1
   DisturbanceFactor: 0.3
   CalibForce: 50
   StandbyK: 1200
@@ -3021,8 +3010,7 @@ MonoBehaviour:
   scoreLogRecordFlag: 1
   disturbanceLogRecordFlag: 1
   delsysEnable: 1
-  emgReconnectFlag: 0
-  emgRecordFormat: 1
+  emgReconnectFlag: 1
   emgSignalMode: 3
   emgScoreDownsampleHz: 100
   emgFilter: {fileID: 1910340486}

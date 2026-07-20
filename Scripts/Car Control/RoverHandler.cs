@@ -87,7 +87,7 @@ public class RoverHandler : MonoBehaviour
     // For keyboard input, normalize input to have max magnitude of 1. 
     public void SetInput(Vector2 inputVector) { input = inputVector.normalized; } 
 
-    public void SetDriving(bool driving) { isDriving = driving; }
+    public void SetDriving(bool driving) { isDriving = driving; } // Handoffed by M2RoverBridge.cs using: rover.SetDriving(isDriving && !isPaused && !emgHold);
     public void SetPreserveLateralVelocity(bool preserve) { preserveLateralVelocity = preserve; }
 
     public bool IsDriving() { return isDriving; }

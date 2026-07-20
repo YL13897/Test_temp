@@ -561,8 +561,8 @@ public class DelsysEMG
     }
 
 
-    //Start recording to the selected output format
-    public void StartRecording(string filename, double startT = double.NaN, int sec = 0, EmgRecordFormat format = EmgRecordFormat.Hdf5)
+    //Start recording to CSV
+    public void StartRecording(string filename, double startT = double.NaN, int sec = 0)
     {
         string dir = Path.GetDirectoryName(filename);
         if (!string.IsNullOrEmpty(dir))
@@ -576,7 +576,7 @@ public class DelsysEMG
             recordingDroppedCount = 0;
             recordingStartT = startT;
             recordingSec = sec;
-            recordingWriter.Open(filename, format, GetSignalLabel(), GetChannelsActiveSensor(), samplingInterval);
+            recordingWriter.Open(filename, GetSignalLabel(), GetChannelsActiveSensor());
             recordingWriterRunning = true;
             recordingThread = new Thread(RecordingThreadRoutine)
             {

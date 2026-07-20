@@ -35,6 +35,7 @@ class CalibrationProfile:
     stiffness_scale: float = 0.0
     standbyK: float = 0.0
     note: str = ""
+    raw_repeats: dict = field(default_factory=dict)
     raw: dict = field(default_factory=dict)
 
     def response(self):
@@ -99,6 +100,7 @@ def save_profile(profile, directory, base_id):
         "stiffness_scale": profile.stiffness_scale,
         "standbyK": profile.standbyK,
         "note": profile.note,
+        "raw_repeats": profile.raw_repeats,
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)

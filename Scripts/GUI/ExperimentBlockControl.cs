@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using CORC.Demo;
 using UnityEngine;
 using TMPro;
 
@@ -46,6 +47,7 @@ public class ExperimentBlockControl : MonoBehaviour
 
     [Header("Refs")]
     [SerializeField] LeaderHandler leader;
+    [SerializeField] M2RoverBridge bridge;
     [SerializeField] TMP_Text sectionIndexText;
     [SerializeField] TMP_Text countdownText;
     [SerializeField] TMP_Text blockMessageText;
@@ -152,6 +154,8 @@ public class ExperimentBlockControl : MonoBehaviour
 
         if (leader == null)
             leader = FindFirstObjectByType<LeaderHandler>();
+        if (bridge == null)
+            bridge = FindFirstObjectByType<M2RoverBridge>();
 
         recoverySecondsClamped = Mathf.Max(0f, RecoverySeconds);
         RefreshUi();
@@ -239,6 +243,8 @@ public class ExperimentBlockControl : MonoBehaviour
         if (autoPauseAtTime >= 0f) return;
 
         StartNextSection();
+        if (hasActiveSection)
+            bridge?.HoldBlockForEmgDisconnect();
     }
 
     // MarkAutoPauseRequested(): To be called when an auto-pause is requested.
@@ -411,6 +417,10 @@ public class ExperimentBlockControl : MonoBehaviour
             if (IsRoundComplete)
             {
                 messageText.text = "Round complete";
+            }
+            else if (bridge != null && bridge.IsEmgHold)
+            {
+                messageText.text = "EMG disconnected.Reconnecting...";
             }
             else if (CountdownActive)
             {
