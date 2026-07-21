@@ -585,7 +585,7 @@ namespace CORC.Demo
                 scoreLogRowsSinceFlush = 0;
                 if (!append)
                 {
-                    string header = "global_t,x_rover,x_leader,handle_fx,track_score,force_score,emg_score,total_score,block_index,section_index";
+                    string header = "global_t,x_rover,x_leader,handle_fx,track_score,force_score,emg_score,total_score,boundary_penalty,block_index,section_index";
                     scoreLogWriter.WriteLine(header);
                     scoreLogWriter.Flush();
                 }
@@ -875,7 +875,8 @@ namespace CORC.Demo
                 .Append(ScoreManager.Instance.TrackSectionScore.ToString("F6")).Append(',')
                 .Append(ScoreManager.Instance.ForceSectionScore.ToString("F6")).Append(',')
                 .Append(ScoreManager.Instance.EmgSectionScore.ToString("F6")).Append(',')
-                .Append(ScoreManager.Instance.SectionScore.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.DisplaySectionScore.ToString("F6")).Append(',')
+                .Append(ScoreManager.Instance.BoundaryPenaltyScore.ToString("F6")).Append(',')
                 .Append(blockIndex).Append(',')
                 .Append(sectionIndex);
 

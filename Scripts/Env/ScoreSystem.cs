@@ -9,7 +9,6 @@ public class ScoreSystem : MonoBehaviour
     [SerializeField] Rigidbody leaderRb;
 
     [Header("Scoring Parameters")]
-    const float scoreDuration = 1.4f; // Change this based on the duration of the scoring period (in seconds). Check the ScoringZone parameter in Section prefab to determine this value.
     public float penaltyValue = 100f;
 
     [Header("Composite Score Weights")]
@@ -119,6 +118,7 @@ public class ScoreSystem : MonoBehaviour
             ? Mathf.Clamp01(bridge.EmgEffortScore / 100f)
             : 0f;
 
+        float scoreDuration = ScoreManager.Instance.ScoreDuration;
         float wTrack = trackReward / scoreDuration;
         float wEmg = w_emg * emgQuality / scoreDuration;
 

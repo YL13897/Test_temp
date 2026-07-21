@@ -37,7 +37,9 @@ public class SectionScoreResetZone : MonoBehaviour
         // Notify the block control that we've entered a new section, so it can handle scoring and block progression logic.
         ExperimentBlockControl.Instance?.NotifySectionEntered(transform.root.name); 
 
-        ScoreManager.Instance.UpdateLastTotalScore();
+        if (ScoreManager.Instance.SectionScoringActive && ScoreManager.Instance.FinalizeAtSectionEnd)
+            ScoreManager.Instance.UpdateLastTotalScore();
+
         ScoreManager.Instance.ResetSection();
     }
 }

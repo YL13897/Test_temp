@@ -4,6 +4,12 @@ using UnityEngine.UI;
 
 public class ScoreManager : MonoBehaviour
 {
+    public enum ScoringWindowMode
+    {
+        FullSection,
+        RiskOnly
+    }
+
     public static ScoreManager Instance { get; private set; }
 
     [Header("UI")]
@@ -17,12 +23,18 @@ public class ScoreManager : MonoBehaviour
     [SerializeField] bool useForceScore = false;
     [SerializeField] Slider sectionBar;
 
+    [Header("Scoring Window")]
+    [SerializeField] ScoringWindowMode scoringWindowMode = ScoringWindowMode.FullSection;
+    const float fullScoreDuration = 1.4f;
+    const float riskOnlyDuration = 0.4f;
+
     public float SectionScore { get; private set; }
     public float EmgScore { get; private set; }
     public float TrackSectionScore { get; private set; }
     public float ForceSectionScore { get; private set; }
     public float ForceAvg { get; private set; }
     public float EmgSectionScore { get; private set; }
+    public float BoundaryPenaltyScore { get; private set; }
     public double EmgTimestamp { get; private set; }
     public string EmgDetails { get; private set; }
     public float HandleFx { get; private set; }
@@ -34,15 +46,31 @@ public class ScoreManager : MonoBehaviour
     public bool HasStartedScoring { get; private set; }
     public bool SectionScoringActive { get; private set; }
     public bool IsScorePaused { get; private set; }
+    public float ScoreDuration => fullScoreDuration;
+    public float DisplaySectionScore => IsDisplayActive ? displaySectionScore : 0f;
+    public bool FinalizeAtSectionEnd => scoringWindowMode == ScoringWindowMode.FullSection;
+
     private bool boundaryPenaltyApplied;
+    private bool displayActive;
+    private float displayElapsed;
     private float lastTrackScore;
     private float lastForceScore;
     private float lastEmgScore;
     private float lastTotalScore;
     private float displaySectionScore;
+    private float lastDisplayTrackScore;
+    private float lastDisplayForceScore;
+    private float lastDisplayEmgScore;
     private float lastDisplayScore;
     private bool showLiveScore;
     private CORC.Demo.M2RoverBridge bridge;
+    private float DisplayDuration =>
+        scoringWindowMode == ScoringWindowMode.RiskOnly ? riskOnlyDuration : fullScoreDuration;
+    private bool IsDisplayActive => scoringWindowMode != ScoringWindowMode.RiskOnly || displayActive;
+    private float DisplayScale => fullScoreDuration / DisplayDuration;
+    private float DisplayTrackSectionScore => IsDisplayActive ? TrackSectionScore * DisplayScale : 0f;
+    private float DisplayForceSectionScore => IsDisplayActive ? ForceSectionScore * DisplayScale : 0f;
+    private float DisplayEmgSectionScore => IsDisplayActive ? EmgSectionScore * DisplayScale : 0f;
 
     void Awake()
     {
@@ -60,6 +88,20 @@ public class ScoreManager : MonoBehaviour
         ResetAll();
     }
 
+    void Update()
+    {
+        if (scoringWindowMode != ScoringWindowMode.RiskOnly) return;
+        if (!SectionScoringActive || !displayActive || IsScorePaused) return;
+
+        displayElapsed += Time.deltaTime;
+        if (displayElapsed >= riskOnlyDuration)
+        {
+            UpdateLastTotalScore();
+            displayActive = false;
+            displayElapsed = 0f;
+        }
+    }
+
     public void ResetAll()
     {
         EmgScore = 0f;
@@ -70,6 +112,8 @@ public class ScoreManager : MonoBehaviour
         HasStartedScoring = false;
         SectionScoringActive = false;
         IsScorePaused = false;
+        displayActive = false;
+        displayElapsed = 0f;
         ResetSection();
         UpdateTrialScoreVisible();
         RefreshUI();
@@ -77,8 +121,11 @@ public class ScoreManager : MonoBehaviour
 
     public void BeginScoring()
     {
+        ClearCurrentSectionScores();
         HasStartedScoring = true;
         SectionScoringActive = true;
+        displayActive = true;
+        displayElapsed = 0f;
         showLiveScore = true;
         if (!alwaysShowTrialScore)
             HideTrialScore();
@@ -117,13 +164,22 @@ public class ScoreManager : MonoBehaviour
 
     public void ResetSection()
     {
+        ClearCurrentSectionScores();
+        RefreshUI();
+    }
+
+    void ClearCurrentSectionScores()
+    {
         SectionScore = 0f;
         displaySectionScore = 0f;
         TrackSectionScore = 0f;
         ForceSectionScore = 0f;
         ForceAvg = 0f;
         EmgSectionScore = 0f;
+        BoundaryPenaltyScore = 0f;
         SectionScoringActive = false;
+        displayActive = false;
+        displayElapsed = 0f;
         boundaryPenaltyApplied = false;
         ResetCompositeMetrics();
         if (sectionBar != null)
@@ -132,22 +188,13 @@ public class ScoreManager : MonoBehaviour
             sectionBar.maxValue = 9f;
             sectionBar.value = 0f;
         }
-        RefreshUI();
     }
 
     public void ResetBlockScores()
     {
-        SectionScore = 0f;
-        displaySectionScore = 0f;
-        TrackSectionScore = 0f;
-        ForceSectionScore = 0f;
-        ForceAvg = 0f;
-        EmgSectionScore = 0f;
-        ResetCompositeMetrics();
+        ClearCurrentSectionScores();
         ClearTrialScore();
         HasStartedScoring = false;
-        SectionScoringActive = false;
-        boundaryPenaltyApplied = false;
         UpdateTrialScoreVisible();
 
         if (sectionBar != null)
@@ -164,9 +211,10 @@ public class ScoreManager : MonoBehaviour
     public void AddToScores(float trackDelta, float forceDelta, float emgDelta)
     {
         float delta = trackDelta + forceDelta + emgDelta;
-        float displayDelta = SelectedScore(trackDelta, forceDelta, emgDelta);
         SectionScore += delta;
-        displaySectionScore += displayDelta;
+        if (IsDisplayActive)
+            displaySectionScore += SelectedScore(trackDelta, forceDelta, emgDelta) * DisplayScale;
+
         TrackSectionScore += trackDelta;
         ForceSectionScore += forceDelta;
         EmgSectionScore += emgDelta;
@@ -182,10 +230,12 @@ public class ScoreManager : MonoBehaviour
 
     public void ApplyBoundaryPenalty(float penalty)
     {
-        SectionScore -= penalty;
-        if (useTrackScore)
+        float penaltyAbs = Mathf.Abs(penalty);
+        SectionScore -= penaltyAbs;
+        BoundaryPenaltyScore -= penaltyAbs;
+        if (useTrackScore && IsDisplayActive)
         {
-            displaySectionScore -= penalty;
+            displaySectionScore -= penaltyAbs;
         }
 
         RefreshUI();
@@ -206,7 +256,10 @@ public class ScoreManager : MonoBehaviour
         lastForceScore = ForceSectionScore;
         lastEmgScore = EmgSectionScore;
         lastTotalScore = SectionScore;
-        lastDisplayScore = displaySectionScore;
+        lastDisplayTrackScore = DisplayTrackSectionScore;
+        lastDisplayForceScore = DisplayForceSectionScore;
+        lastDisplayEmgScore = DisplayEmgSectionScore;
+        lastDisplayScore = DisplaySectionScore;
         showLiveScore = false;
         ShowTrialScore(false);
     }
@@ -239,6 +292,9 @@ public class ScoreManager : MonoBehaviour
         lastForceScore = 0f;
         lastEmgScore = 0f;
         lastTotalScore = 0f;
+        lastDisplayTrackScore = 0f;
+        lastDisplayForceScore = 0f;
+        lastDisplayEmgScore = 0f;
         lastDisplayScore = 0f;
         showLiveScore = false;
     }
@@ -265,10 +321,10 @@ public class ScoreManager : MonoBehaviour
 
     string FormatTrialScore(bool live, bool totalOnly = false)
     {
-        float track = live ? TrackSectionScore : lastTrackScore;
-        float force = live ? ForceSectionScore : lastForceScore;
-        float emg = live ? EmgSectionScore : lastEmgScore;
-        float total = live ? displaySectionScore : lastDisplayScore;
+        float track = live ? DisplayTrackSectionScore : lastDisplayTrackScore;
+        float force = live ? DisplayForceSectionScore : lastDisplayForceScore;
+        float emg = live ? DisplayEmgSectionScore : lastDisplayEmgScore;
+        float total = live ? DisplaySectionScore : lastDisplayScore;
 
         if (totalOnly)
             return $"Total: {total:0.0}";

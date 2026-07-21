@@ -2803,6 +2803,7 @@ MonoBehaviour:
   useStiffnessScore: 1
   useForceScore: 0
   sectionBar: {fileID: 789705627}
+  scoringWindowMode: 0
 --- !u!4 &507810785
 Transform:
   m_ObjectHideFlags: 0
@@ -2975,7 +2976,7 @@ MonoBehaviour:
   roverRigidbody: {fileID: 481331123}
   fsrEnable: 1
   fsrReader: {fileID: 468612451}
-  DisturbanceFactor: 0.3
+  DisturbanceFactor: 0.25
   CalibForce: 50
   StandbyK: 1200
   EmgRest: []
