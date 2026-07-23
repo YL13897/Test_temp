@@ -241,6 +241,7 @@ public class ExperimentBlockControl : MonoBehaviour
         waitingForReturnAck = false;
         receivedReturnAck = false;
         hasActiveSection = false;
+        leader?.SetTargetLane(GetCurrentOrUpcomingSectionSpec().leaderTargetX);
         RefreshUi();
     }
 

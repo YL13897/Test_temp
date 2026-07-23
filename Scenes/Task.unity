@@ -2929,7 +2929,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ExperimentBlockControl
   RecoverySeconds: 0.8
-  addFixedBlocks: 1
+  addFixed0Block: 1
+  addFixed100Block: 1
   useFixSequence: 0
   useTestSequence: 1
   sequenceSet: 1
@@ -2985,7 +2986,7 @@ MonoBehaviour:
   m2Axis: 0
   useM2Admittance: 1
   standbyAX: 0.44
-  standbyAY: 0.2
+  standbyAY: 0.12
   unityMode: 1
   hriModeCode: 2
   ctrlModeCode: 1
