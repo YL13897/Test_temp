@@ -48,7 +48,7 @@ namespace CORC.Demo
         private FsrGraspForceReader lastFsrReader = null;
 
         [Header("Participant Calibration")]
-        [SerializeField, Range(0f, 1f)] private float DisturbanceFactor = 0.3f;
+        [SerializeField, Range(0f, 1f)] private float DisturbanceFactor = 0.20f;
         public float CalibForce = 50f;
         public float StandbyK = 1200f;
         public float[] EmgRest = Array.Empty<float>();
@@ -106,7 +106,7 @@ namespace CORC.Demo
         [Tooltip("Calibrated uses 40% of CalibForce; Manual uses the value below.")]
         [SerializeField] private DisturbanceForceMode disturbanceForceMode = DisturbanceForceMode.Calibrated;
         [Tooltip("Manual disturbance force in newtons.")]
-        [SerializeField, Range(1f, 50f)] private float manualDisturbanceForce = 20f;
+        [SerializeField, Range(1f, 50f)] private float manualDisturbanceForce = 15f;
 
         [Header("M2 VEL mode (open-loop damped steer)")]
         public float velHandleXDeadZone = 0.01f;

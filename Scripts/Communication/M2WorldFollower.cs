@@ -21,7 +21,7 @@ public class M2WorldFollower : MonoBehaviour
     [Tooltip("How quickly sync bias returns to zero after disturbance.")]
     public float biasRecoverRate = 4f;
     [Tooltip("Clamp on disturbance-induced Unity X bias.")]
-    [Range(0f, 10f)] public float maxBias = 3f;
+    [Range(0f, 10f)] public float maxBias = 2.5f;
 
     private Vector3 lastPos;
     private float syncXBias = 0f; // disturbance-induced x offset from nominal mapping

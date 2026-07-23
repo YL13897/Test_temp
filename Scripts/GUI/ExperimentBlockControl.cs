@@ -21,7 +21,8 @@ public class ExperimentBlockControl : MonoBehaviour
 
     [Header("Block Config")]
     [SerializeField] float RecoverySeconds = 0.8f;
-    [SerializeField] bool addFixedBlocks = true;
+    [SerializeField] bool addFixed0Block = true;
+    [SerializeField] bool addFixed100Block = true;
     [SerializeField] bool useFixSequence = false;
     [SerializeField] bool useTestSequence = false;
     [SerializeField, Range(1, 3)] int sequenceSet = 1;
@@ -81,11 +82,19 @@ public class ExperimentBlockControl : MonoBehaviour
                 return 0f;
 
             int block = currentBlockIndex;
-            if (addFixedBlocks)
+
+            if (addFixed0Block)
             {
-                if (block < 2)
-                    return block;
-                block -= 2;
+                if (block == 0)
+                    return 0f;
+                block--;
+            }
+
+            if (addFixed100Block)
+            {
+                if (block == 0)
+                    return 1f;
+                block--;
             }
 
             if (useFixSequence)
@@ -98,7 +107,8 @@ public class ExperimentBlockControl : MonoBehaviour
         }
     }
 
-    int TotalBlocks => blockProbabilities.Length + (addFixedBlocks ? 2 : 0);
+    int FixedBlockCount => (addFixed0Block ? 1 : 0) + (addFixed100Block ? 1 : 0);
+    int TotalBlocks => blockProbabilities.Length + FixedBlockCount;
     public bool HasPreparedBlock => currentBlockIndex >= 0 && currentBlockIndex < TotalBlocks;
     public bool IsRoundComplete => currentBlockIndex >= TotalBlocks;
     public bool HasActiveSection => hasActiveSection;
@@ -341,7 +351,7 @@ public class ExperimentBlockControl : MonoBehaviour
         currentBlockSections.Clear();
         if (leader == null) return;
 
-        int block = currentBlockIndex - (addFixedBlocks ? 2 : 0);
+        int block = currentBlockIndex - FixedBlockCount;
         if (!useFixSequence && block >= 0)
         {
             int start = block * SectionsPerBlock;

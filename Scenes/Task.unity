@@ -2894,7 +2894,7 @@ MonoBehaviour:
   marker: {fileID: 481331129}
   markerRb: {fileID: 481331123}
   unityCenterX: 0
-  smooth: 0.25
+  smooth: 0
   biasRecoverRate: 4
   maxBias: 2.5
 --- !u!114 &507810791
@@ -2990,7 +2990,7 @@ MonoBehaviour:
   hriModeCode: 2
   ctrlModeCode: 1
   disturbanceForceMode: 0
-  manualDisturbanceForce: 5
+  manualDisturbanceForce: 15
   velHandleXDeadZone: 0.005
   velOpenLoopKp: 1
   velOpenLoopKd: 2.5

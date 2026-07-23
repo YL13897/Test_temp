@@ -4,13 +4,26 @@ from pathlib import Path
 
 try:
     import matplotlib.pyplot as plt
+    import numpy as np
 except ModuleNotFoundError:
-    raise SystemExit("matplotlib is required: python -m pip install matplotlib")
+    raise SystemExit("matplotlib and numpy are required")
+
+
+FORCE_KEYS = (
+    "left_30",
+    "left_50",
+    "left_70",
+    "left_100",
+    "right_30",
+    "right_50",
+    "right_70",
+    "right_100",
+)
 
 
 def load_profile(path):
-    with open(path, "r", encoding="utf-8-sig") as f:
-        return json.load(f)
+    with open(path, "r", encoding="utf-8-sig") as file:
+        return json.load(file)
 
 
 def dot(a, b):
@@ -18,64 +31,444 @@ def dot(a, b):
 
 
 def norm_emg(emg, rest, ref):
-    out = []
-    for e, r, m in zip(emg or [], rest or [], ref or []):
-        denom = max(float(m) - float(r), 1e-6)
-        out.append(max(0.0, min(1.0, (float(e) - float(r)) / denom)))
-    return out
+    values = []
+    for value, rest_value, ref_value in zip(emg or [], rest or [], ref or []):
+        denominator = max(float(ref_value) - float(rest_value), 1e-6)
+        normalized = (float(value) - float(rest_value)) / denominator
+        values.append(max(0.0, min(1.0, normalized)))
+    return values
 
 
 def pick_slots(values, slots, count):
     if not values:
         return []
     if slots:
-        return [float(values[i]) for i in slots if i < len(values)]
-    return [float(v) for v in values[:count]]
+        return [float(values[index]) for index in slots if index < len(values)]
+    return [float(value) for value in values[:count]]
 
 
-def force_proxy(weights, bias, u):
-    return dot(weights, u) + bias
+def slot_emg_values(sample):
+    emg = [float(value) for value in sample.get("emg", [])]
+    channels = sample.get("emgChannels", [])
+    values = []
+    for channel in sample.get("emgSlots", []):
+        if channel <= 0 or channel not in channels:
+            values.append(0.0)
+            continue
+        index = channels.index(channel)
+        values.append(emg[index] if index < len(emg) else 0.0)
+    return values
 
 
-def spi_proxy(weights, bias, u):
-    return dot([abs(float(w)) for w in weights], u) + bias
+def co_contraction_proxy(weights, u):
+    positive = 0.0
+    negative = 0.0
+    for weight, value in zip(weights, u):
+        weighted = abs(float(weight)) * float(value)
+        if weight > 0:
+            positive += weighted
+        elif weight < 0:
+            negative += weighted
+    return positive + negative - abs(positive - negative)
 
 
-def solve_linear(a, b):
-    n = len(b)
-    m = [row[:] + [float(bi)] for row, bi in zip(a, b)]
-    for i in range(n):
-        pivot = max(range(i, n), key=lambda r: abs(m[r][i]))
-        if abs(m[pivot][i]) < 1e-12:
-            return []
-        m[i], m[pivot] = m[pivot], m[i]
-        scale = m[i][i]
-        for c in range(i, n + 1):
-            m[i][c] /= scale
-        for r in range(n):
-            if r == i:
-                continue
-            factor = m[r][i]
-            for c in range(i, n + 1):
-                m[r][c] -= factor * m[i][c]
-    return [m[i][n] for i in range(n)]
+def repeat_sort_key(repeat):
+    try:
+        return 0, int(repeat)
+    except (TypeError, ValueError):
+        return 1, str(repeat)
 
 
-def refit_force(points, count):
-    xtx = [[0.0 for _ in range(count + 1)] for _ in range(count + 1)]
-    xty = [0.0 for _ in range(count + 1)]
-    for point in points:
-        row = [float(v) for v in point["u"][:count]] + [1.0]
-        y = float(point["force"])
-        for r in range(count + 1):
-            xty[r] += row[r] * y
-            for c in range(count + 1):
-                xtx[r][c] += row[r] * row[c]
+def repeat_ids(raw_repeats):
+    return sorted(
+        {
+            str(repeat)
+            for repeat_set in raw_repeats.values()
+            for repeat in repeat_set
+        },
+        key=repeat_sort_key,
+    )
 
-    coeffs = solve_linear(xtx, xty)
-    if not coeffs:
-        return [], 0.0
-    return coeffs[:-1], coeffs[-1]
+
+def mean_emg(samples):
+    rows = [slot_emg_values(sample) for sample in samples]
+    rows = [row for row in rows if row]
+    if not rows:
+        return []
+    width = min(len(row) for row in rows)
+    return np.mean(np.asarray([row[:width] for row in rows]), axis=0).tolist()
+
+
+def robust_emg_peak(samples, percentile=95):
+    rows = [slot_emg_values(sample) for sample in samples]
+    rows = [row for row in rows if row]
+    if not rows:
+        return []
+    width = min(len(row) for row in rows)
+    return np.percentile(
+        np.asarray([row[:width] for row in rows]), percentile, axis=0
+    ).tolist()
+
+
+def repeat_emg_reference(raw_repeats, repeat):
+    references = []
+    for key in ("left_100", "right_100", "bracing"):
+        reference = robust_emg_peak(raw_repeats.get(key, {}).get(repeat, []))
+        if reference:
+            references.append(reference)
+    if not references:
+        return []
+    width = min(len(reference) for reference in references)
+    return np.max(
+        np.asarray([reference[:width] for reference in references]), axis=0
+    ).tolist()
+
+
+def mean_normalized_u(samples, rest, ref, slots, count):
+    rows = []
+    for sample in samples:
+        normalized = norm_emg(slot_emg_values(sample), rest, ref)
+        u = pick_slots(normalized, slots, count)
+        if len(u) == count:
+            rows.append(u)
+    if not rows:
+        return []
+    return np.mean(np.asarray(rows, dtype=float), axis=0).tolist()
+
+
+def mean_signed_force(samples, direction):
+    values = []
+    for sample in samples:
+        force = sample.get("m2Force", [])
+        if not force:
+            continue
+        fx = float(force[0])
+        if direction < 0 and fx < 0:
+            values.append(abs(fx))
+        elif direction > 0 and fx > 0:
+            values.append(abs(fx))
+    if not values:
+        return None
+    return direction * float(np.mean(values))
+
+
+def fit_force_model(points, count):
+    if len(points) < count + 1:
+        return None
+    x = np.asarray([point["u"] + [1.0] for point in points], dtype=float)
+    y = np.asarray([point["force"] for point in points], dtype=float)
+    coefficients, *_ = np.linalg.lstsq(x, y, rcond=None)
+    return coefficients[:-1].tolist(), float(coefficients[-1])
+
+
+def build_condition_points(raw_repeats, repeat, rest, ref, slots, count):
+    points = []
+    for key in FORCE_KEYS:
+        samples = raw_repeats.get(key, {}).get(repeat, [])
+        direction = -1.0 if key.startswith("left_") else 1.0
+        u = mean_normalized_u(samples, rest, ref, slots, count)
+        force = mean_signed_force(samples, direction)
+        if len(u) == count and force is not None:
+            points.append(
+                {"label": key, "u": u, "force": force, "extra": False}
+            )
+
+    for key in ("emg_rest", "bracing"):
+        samples = raw_repeats.get(key, {}).get(repeat, [])
+        if key == "bracing":
+            bracing_peak = robust_emg_peak(samples)
+            u = pick_slots(norm_emg(bracing_peak, rest, ref), slots, count)
+        else:
+            u = mean_normalized_u(samples, rest, ref, slots, count)
+        if len(u) == count:
+            points.append({"label": key, "u": u, "force": 0.0, "extra": True})
+    return points
+
+
+def build_repeat_models(profile):
+    raw_repeats = profile.get("raw_repeats", {})
+    slots = profile.get("fit_slots", [])
+    count = len(profile.get("emg_force_weights", []))
+    common_rest = profile.get("emg_rest", [])
+    common_ref = profile.get("emg_ref", []) or profile.get("emg_bracing", [])
+    models = {}
+
+    for repeat in repeat_ids(raw_repeats):
+        rest_samples = raw_repeats.get("emg_rest", {}).get(repeat, [])
+        rest = mean_emg(rest_samples)
+        ref = repeat_emg_reference(raw_repeats, repeat)
+        if not rest or not ref:
+            print(f"Repeat {repeat}: missing EMG rest/reference; fit skipped.")
+            continue
+
+        fit_points = build_condition_points(
+            raw_repeats, repeat, rest, ref, slots, count
+        )
+        common_points = build_condition_points(
+            raw_repeats, repeat, common_rest, common_ref, slots, count
+        )
+
+        fitted = fit_force_model(fit_points, count)
+        if fitted is None:
+            print(f"Repeat {repeat}: insufficient fit points; skipped.")
+            continue
+        weights, bias = fitted
+        models[repeat] = {
+            "weights": weights,
+            "bias": bias,
+            "points": fit_points,
+            "common_points": common_points,
+            "rest": rest,
+            "ref": ref,
+        }
+        print(
+            f"Repeat {repeat}: {len(fit_points)} condition points, "
+            f"w={[round(value, 6) for value in weights]}, b={bias:.6f}"
+        )
+    return models
+
+
+def average_fit_points(profile, count):
+    points = []
+    for trial in profile.get("fit_trials", []):
+        u = [float(value) for value in trial.get("emg_mean", [])]
+        if len(u) != count:
+            continue
+        key = trial.get("key", "")
+        points.append(
+            {
+                "label": key,
+                "u": u,
+                "force": float(trial.get("force_mean", 0.0)),
+                "extra": key in ("rest", "bracing"),
+            }
+        )
+    return points
+
+
+def fit_line(points):
+    if len(points) < 2:
+        return None
+    x = np.asarray([point[0] for point in points], dtype=float)
+    y = np.asarray([point[1] for point in points], dtype=float)
+    if np.ptp(x) < 1e-12:
+        return None
+    slope, intercept = np.polyfit(x, y, 1)
+    return float(slope), float(intercept)
+
+
+def repeat_colors(repeats):
+    colors = plt.get_cmap("tab10").colors
+    return {
+        repeat: colors[index % len(colors)] for index, repeat in enumerate(repeats)
+    }
+
+
+def plot_condition_fits(profile, profile_name, repeat_models):
+    saved_weights = [float(value) for value in profile.get("emg_force_weights", [])]
+    saved_bias = float(profile.get("emg_force_bias", 0.0))
+    average_points = average_fit_points(profile, len(saved_weights))
+    repeats = sorted(repeat_models, key=repeat_sort_key)
+    colors = repeat_colors(repeats)
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+
+    ax = axes[0]
+    for repeat in repeats:
+        model = repeat_models[repeat]
+        weights = model["weights"]
+        bias = model["bias"]
+        points = model["points"]
+        x = [dot(weights, point["u"]) for point in points]
+        y = [point["force"] for point in points]
+        color = colors[repeat]
+        ax.scatter(x, y, color=color, s=34, alpha=0.75, label=f"Repeat {repeat}")
+        line_x = [min(x), max(x)]
+        ax.plot(
+            line_x,
+            [value + bias for value in line_x],
+            color=color,
+            linewidth=1.8,
+            label=f"Repeat {repeat} fit",
+        )
+
+    average_x = [dot(saved_weights, point["u"]) for point in average_points]
+    average_y = [point["force"] for point in average_points]
+    ax.scatter(
+        average_x,
+        average_y,
+        facecolors="white",
+        edgecolors="black",
+        linewidths=1.5,
+        s=70,
+        label="All-repeat condition means",
+        zorder=5,
+    )
+    if average_x:
+        line_x = [min(average_x), max(average_x)]
+        ax.plot(
+            line_x,
+            [value + saved_bias for value in line_x],
+            color="black",
+            linewidth=4.0,
+            label="All-repeat fit",
+            zorder=4,
+        )
+    for x, y, point in zip(average_x, average_y, average_points):
+        ax.annotate(
+            point["label"], (x, y), textcoords="offset points", xytext=(5, 5), fontsize=8
+        )
+    ax.axhline(0, color="0.75", linewidth=1)
+    ax.axvline(0, color="0.75", linewidth=1)
+    ax.set_xlabel("Weighted EMG term, sum(w_i u_i)")
+    ax.set_ylabel("Mean interaction force Fx (N)")
+    ax.set_title("Repeat and all-repeat EMG-force fits")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    ax = axes[1]
+    for repeat in repeats:
+        model = repeat_models[repeat]
+        points = model["common_points"]
+        force_values = [
+            dot(saved_weights, point["u"]) + saved_bias for point in points
+        ]
+        spi_values = [
+            co_contraction_proxy(saved_weights, point["u"]) for point in points
+        ]
+        ax.scatter(
+            force_values,
+            spi_values,
+            color=colors[repeat],
+            s=34,
+            alpha=0.75,
+            label=f"Repeat {repeat}",
+        )
+
+    average_force = [dot(saved_weights, point["u"]) + saved_bias for point in average_points]
+    average_spi = [
+        co_contraction_proxy(saved_weights, point["u"]) for point in average_points
+    ]
+    ax.scatter(
+        average_force,
+        average_spi,
+        facecolors="white",
+        edgecolors="black",
+        linewidths=1.5,
+        s=70,
+        label="All-repeat means",
+        zorder=5,
+    )
+    for x, y, point in zip(average_force, average_spi, average_points):
+        ax.annotate(
+            point["label"], (x, y), textcoords="offset points", xytext=(5, 5), fontsize=8
+        )
+    ax.axhline(0, color="0.75", linewidth=1)
+    ax.axvline(0, color="0.75", linewidth=1)
+    ax.set_xlabel("Force proxy, sum(w_i u_i) + b (N)")
+    ax.set_ylabel("EMG co-contraction proxy")
+    ax.set_title("Force proxy vs co-contraction (all-repeat model)")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    fig.suptitle(profile_name)
+    fig.tight_layout()
+    return fig
+
+
+def build_raw_weighted_force_points(profile):
+    raw_repeats = profile.get("raw_repeats", {})
+    weights = [float(value) for value in profile.get("emg_force_weights", [])]
+    rest = profile.get("emg_rest", [])
+    ref = profile.get("emg_ref", []) or profile.get("emg_bracing", [])
+    slots = profile.get("fit_slots", [])
+    count = len(weights)
+    points_by_repeat = {}
+
+    for repeat in repeat_ids(raw_repeats):
+        points = []
+        counts = {}
+        for key in FORCE_KEYS:
+            repeat_set = raw_repeats.get(key, {})
+            accepted = 0
+            for sample in repeat_set.get(repeat, []):
+                force = sample.get("m2Force", [])
+                if not force:
+                    continue
+                normalized = norm_emg(slot_emg_values(sample), rest, ref)
+                u = pick_slots(normalized, slots, count)
+                if len(u) != count:
+                    continue
+                weighted_term = dot(weights, u)
+                interaction_force = float(force[0])
+                points.append((weighted_term, interaction_force))
+                accepted += 1
+            counts[key] = accepted
+        points_by_repeat[repeat] = points
+        count_text = ", ".join(f"{key}={count_value}" for key, count_value in counts.items())
+        print(f"Repeat {repeat}: raw n={len(points)} ({count_text})")
+    return points_by_repeat
+
+
+def plot_raw_weighted_force_fits(profile, profile_name):
+    points_by_repeat = build_raw_weighted_force_points(profile)
+    if not points_by_repeat:
+        print("No raw_repeats found; raw repeat fit plot skipped.")
+        return None
+
+    repeats = sorted(points_by_repeat, key=repeat_sort_key)
+    colors = repeat_colors(repeats)
+    all_points = []
+    fig, ax = plt.subplots(figsize=(8.5, 6.5))
+
+    for repeat in repeats:
+        points = points_by_repeat[repeat]
+        if not points:
+            continue
+        all_points.extend(points)
+        color = colors[repeat]
+        ax.scatter(
+            [point[0] for point in points],
+            [point[1] for point in points],
+            s=14,
+            alpha=0.22,
+            color=color,
+            edgecolors="none",
+            label=f"Repeat {repeat} samples (n={len(points)})",
+        )
+        fitted = fit_line(points)
+        if fitted is not None:
+            slope, intercept = fitted
+            x_range = [min(point[0] for point in points), max(point[0] for point in points)]
+            ax.plot(
+                x_range,
+                [slope * value + intercept for value in x_range],
+                color=color,
+                linewidth=1.8,
+                label=f"Repeat {repeat} fit",
+            )
+
+    fitted = fit_line(all_points)
+    if fitted is not None:
+        slope, intercept = fitted
+        x_range = [min(point[0] for point in all_points), max(point[0] for point in all_points)]
+        ax.plot(
+            x_range,
+            [slope * value + intercept for value in x_range],
+            color="black",
+            linewidth=4.0,
+            label=f"All repeats fit (n={len(all_points)})",
+            zorder=5,
+        )
+
+    ax.axhline(0, color="0.75", linewidth=1)
+    ax.axvline(0, color="0.75", linewidth=1)
+    ax.set_xlabel("Weighted EMG term, sum(w_i u_i)")
+    ax.set_ylabel("Interaction force Fx (N)")
+    ax.set_title(f"{profile_name}: raw weighted EMG term vs force")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig
 
 
 def pick_json_file():
@@ -86,7 +479,7 @@ def pick_json_file():
         root = tk.Tk()
         root.withdraw()
         path = filedialog.askopenfilename(
-            title="Select calibration JSON file, e.g. P01_calibration.json (not EmgLogs/EmgDebug CSV)",
+            title="Select calibration JSON file, e.g. P01_calibration.json",
             filetypes=(("JSON files", "*.json"), ("All files", "*.*")),
         )
         root.destroy()
@@ -97,143 +490,43 @@ def pick_json_file():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Plot EMG-force calibration fit from saved calibration JSON, not EMG/debug CSV."
+        description="Plot EMG-force calibration fits from a saved calibration JSON."
     )
-    parser.add_argument("json_path", nargs="?", default="", help="Calibration JSON file, e.g. P01_calibration.json.")
+    parser.add_argument(
+        "json_path", nargs="?", default="", help="Calibration JSON file."
+    )
     parser.add_argument("--out", default="", help="Optional output image path.")
     args = parser.parse_args()
 
     json_path = args.json_path or pick_json_file()
     if not json_path:
-        raise SystemExit("No calibration JSON file selected. Select a saved *_calibration.json file, not EmgLogs/EmgDebug CSV.")
+        raise SystemExit("No calibration JSON file selected.")
 
     path = Path(json_path)
     profile = load_profile(path)
-    trials = profile.get("fit_trials", [])
     saved_weights = profile.get("emg_force_weights", [])
-    saved_bias = float(profile.get("emg_force_bias", 0.0))
-    slots = profile.get("fit_slots", [])
+    if not saved_weights or not profile.get("fit_trials", []):
+        raise SystemExit("No saved EMG-force fit found. Re-run calibration and save.")
 
-    force_trials = [trial for trial in trials if trial.get("key", "") not in ("rest", "bracing")]
-    count = len(saved_weights) if saved_weights else len(force_trials[0].get("emg_mean", [])) if force_trials else 0
-    if not force_trials or count <= 0:
-        raise SystemExit("No usable force fit trials found. Re-run calibration and save the profile.")
-
-    rest = profile.get("emg_rest", [])
-    ref = profile.get("emg_ref", []) or profile.get("emg_bracing", [])
-    force_points = [
-        {"label": trial.get("key", ""), "u": trial.get("emg_mean", []), "force": float(trial["force_mean"]), "extra": False}
-        for trial in force_trials
-    ]
-    points = list(force_points)
-    for label, emg in (("rest", rest), ("bracing", profile.get("emg_bracing", []))):
-        u = pick_slots(norm_emg(emg, rest, ref), slots, count)
-        if len(u) == count:
-            points.append({"label": label, "u": u, "force": 0.0, "extra": True})
-
-    old_weights, old_bias = refit_force(force_points, count)
-    new_weights, new_bias = refit_force(points, count)
-    if not old_weights or not new_weights:
-        raise SystemExit("Least-squares fit failed. Check calibration trial data.")
-
-    x = [dot(old_weights, point["u"]) for point in force_points]
-    y = [point["force"] for point in force_points]
-    labels = [point["label"] for point in force_points]
-    x_line = sorted(x)
-    y_line = [xi + old_bias for xi in x_line]
-
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4.8))
-
-    ax = axes[0]
-    ax.scatter(x, y, color="#1f77b4", label="3s trial mean")
-    ax.plot(x_line, y_line, color="#d62728", label=f"old fit: + {old_bias:.3f}")
-    for xi, yi, label in zip(x, y, labels):
-        ax.annotate(label, (xi, yi), textcoords="offset points", xytext=(5, 5), fontsize=8)
-    ax.axhline(0, color="0.75", linewidth=1)
-    ax.axvline(0, color="0.75", linewidth=1)
-    ax.set_xlabel("Weighted EMG term, sum(w_i u_i)")
-    ax.set_ylabel("Mean interaction force Fx (N)")
-    ax.set_title("EMG-force fit")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    ax = axes[1]
-    fx = []
-    spi = []
-    for point in force_points:
-        u = point["u"]
-        fx.append(force_proxy(new_weights, new_bias, u))
-        spi.append(spi_proxy(new_weights, new_bias, u))
-
-    ax.scatter(fx, spi, color="#1f77b4", label="force trials")
-    for xi, yi, label in zip(fx, spi, labels):
-        ax.annotate(label, (xi, yi), textcoords="offset points", xytext=(5, 5), fontsize=8)
-
-    extra = [
-        ("rest", rest),
-        ("bracing", profile.get("emg_bracing", [])),
-    ]
-    for label, emg in extra:
-        u = pick_slots(norm_emg(emg, rest, ref), slots, count)
-        if len(u) != count:
-            continue
-        xi = force_proxy(new_weights, new_bias, u)
-        yi = spi_proxy(new_weights, new_bias, u)
-        ax.scatter([xi], [yi], marker="x", s=80, color="#d62728")
-        ax.annotate(label, (xi, yi), textcoords="offset points", xytext=(5, 5), fontsize=8)
-
-    ax.axhline(0, color="0.75", linewidth=1)
-    ax.axvline(0, color="0.75", linewidth=1)
-    ax.set_xlabel("Force proxy, sum(w_i u_i) + b (N)")
-    ax.set_ylabel("Co-contraction proxy, sum(|w_i| u_i) + b")
-    ax.set_title("Force proxy vs co-contraction")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    ax = axes[2]
-    old_x = [dot(old_weights, point["u"]) for point in points]
-    new_x = [dot(new_weights, point["u"]) for point in points]
-    yy = [point["force"] for point in points]
-    point_labels = [point["label"] for point in points]
-    colors = ["#d62728" if point["extra"] else "#1f77b4" for point in points]
-    markers = ["x" if point["extra"] else "o" for point in points]
-
-    for xi, yi, label, color, marker, point in zip(old_x, yy, point_labels, colors, markers, points):
-        text = f"{label} old" if point["extra"] else label
-        ax.scatter([xi], [yi], color=color, marker=marker, s=70 if marker == "x" else 35)
-        ax.annotate(text, (xi, yi), textcoords="offset points", xytext=(5, 5), fontsize=8)
-
-    old_line_x = sorted(old_x)
-    ax.plot(old_line_x, [xi + old_bias for xi in old_line_x], color="#d62728", label=f"old fit: + {old_bias:.3f}")
-
-    for xi, yi, point in zip(new_x, yy, points):
-        if point["extra"]:
-            ax.scatter([xi], [yi], color="#2ca02c", marker="x", s=90)
-            ax.annotate(f"{point['label']} new", (xi, yi), textcoords="offset points", xytext=(5, -12), fontsize=8)
-        else:
-            ax.scatter([xi], [yi], edgecolors="#2ca02c", facecolors="none", marker="o", s=45)
-    new_line_x = sorted(new_x)
-    ax.plot(new_line_x, [xi + new_bias for xi in new_line_x], color="#2ca02c", linestyle="--", label=f"with rest/bracing: + {new_bias:.3f}")
-
-    ax.axhline(0, color="0.75", linewidth=1)
-    ax.axvline(0, color="0.75", linewidth=1)
-    ax.set_xlabel("Weighted EMG term, sum(w_i u_i)")
-    ax.set_ylabel("Mean interaction force Fx (N)")
-    ax.set_title("Fit comparison")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    fig.suptitle(path.name)
-    fig.tight_layout()
+    repeat_models = build_repeat_models(profile)
+    fit_fig = plot_condition_fits(profile, path.name, repeat_models)
+    raw_fig = plot_raw_weighted_force_fits(profile, path.name)
 
     if args.out:
         out = Path(args.out)
-        fig.savefig(out, dpi=200)
+        fit_fig.savefig(out, dpi=200, bbox_inches="tight")
         print(f"Saved: {out}")
-    if saved_weights:
-        print(f"Saved w: {[round(float(w), 6) for w in saved_weights]}, b: {saved_bias:.6f}")
-    print(f"Old fit w: {[round(float(w), 6) for w in old_weights]}, b: {old_bias:.6f}")
-    print(f"With rest/bracing w: {[round(float(w), 6) for w in new_weights]}, b: {new_bias:.6f}")
+        if raw_fig is not None:
+            suffix = out.suffix or ".png"
+            repeat_out = out.with_name(f"{out.stem}_repeats{suffix}")
+            raw_fig.savefig(repeat_out, dpi=200, bbox_inches="tight")
+            print(f"Saved: {repeat_out}")
+
+    saved_bias = float(profile.get("emg_force_bias", 0.0))
+    print(
+        f"All-repeat saved w: {[round(float(weight), 6) for weight in saved_weights]}, "
+        f"b={saved_bias:.6f}"
+    )
     plt.show()
 
 
